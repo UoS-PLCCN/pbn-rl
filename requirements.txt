@@ -1,0 +1,3 @@
+stable-baselines3
+gym
+git+https://github.com/UoS-PLCCN/gym-PBN@501fe61
