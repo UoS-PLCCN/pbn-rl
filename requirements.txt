@@ -4,3 +4,4 @@ git+https://github.com/UoS-PLCCN/gym-PBN@08d42a5
 tqdm
 plotly_express==0.4.1
 kaleido
+pytest

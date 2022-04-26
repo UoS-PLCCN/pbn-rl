@@ -1,6 +1,6 @@
 import pickle
 from stable_baselines3 import PPO
-from eval import ssd_eval
+from eval import compute_ssd_hist
 from stable_baselines3.common.logger import configure
 
 with open("envs/n_28.pkl", "rb") as f:
@@ -13,7 +13,7 @@ logger = configure("logs", ["csv"])
 # model.logger(logger)
 # model.learn(50_000)
 
-vanilla_ssd = ssd_eval(env, model=None, output="images/n28_vanilla.png")
+vanilla_ssd = compute_ssd_hist(env, model=None, output="images/n28_vanilla.png")
 with open(f"logs/{env.name}_ssd_vanilla.csv", "w") as f:
     vanilla_ssd.to_csv(f)
 
