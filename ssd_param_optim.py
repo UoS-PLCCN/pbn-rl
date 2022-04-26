@@ -24,6 +24,7 @@ parser.add_argument(
 parser.add_argument(
     "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)."
 )
+parser.add_argument("--env", type=str, help="the environment file to run.")
 args = parser.parse_args()
 
 # Reproducibility
@@ -31,7 +32,7 @@ random.seed(args.seed)
 np.random.seed(args.seed)
 
 # Load env
-with open("envs/n_28.pkl", "rb") as f:
+with open(args.env, "rb") as f:
     env = pickle.load(f)
 
 results = np.zeros((args.runs, 2 ** len(env.target_nodes)))
@@ -42,5 +43,5 @@ for i in range(args.runs):
     for state, row in ssd.iterrows():
         results[i, int(state, 2)] = row["Value"]
 
-print("Mean:", results.mean(axis=0))
-print("Std:", results.std(axis=0))
+print("Mean:", results.mean(axis=0).mean())
+print("Std:", results.std(axis=0).mean())

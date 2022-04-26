@@ -1,0 +1,62 @@
+####################
+#
+# Example Job for HTCondor
+#
+####################
+
+#---------------------------------------------
+# Name your batch so it's easy to distinguish in the q.
+JobBatchName = "PBN SSD Eval HPO"
+
+# ---------------------------------------------------
+# Universe (vanilla, docker)
+universe     = docker
+docker_image = registry.eps.surrey.ac.uk/pbn-rl:main
+
+# -------------------------------------------------
+# Event, out and error logs
+log    = r$(resets).i$(iters).log
+output = r$(resets).i$(iters).out
+error  = r$(resets).i$(iters).error
+
+# -----------------------------------
+# File Transfer, Input, Output
+
+should_transfer_files = YES
+environment = "mount=$ENV(PWD)"
+requirements = (HasStornext)
+
+
+# --------------------------------------
+# Resources
+request_CPUs   = 1
+request_memory = 2G
+
+#This job will complete in less than 1 hour
++JobRunTime = 1
+
+#This job can checkpoint
++CanCheckpoint = false
+
+
+# --------------------------------------------
+# Executable
+executable    = python
+
+# -----------------------------------
+# Queue commands. We can use variables and flags to launch our command with multiple options (as you would from the command line)
+arguments = $(script) --resets $(resets) --iters $(iters) --bit-flip-prob $(bit_flip_prob) --env $(env)
+
+script = $ENV(PWD)/ssd_param_optim.py
+env = envs/n_28.pkl
+
+# Make the checkpoint location depend on the variables we use to run the model
+resets = 10
+queue 1 iters in 120000 510000 1200000
+
+resets = 100
+queue 1 iters in 120000 510000 1200000
+
+resets = 300
+queue 1 iters in 120000 510000 1200000
+
