@@ -11,7 +11,7 @@ JobBatchName = "PBN SSD Eval HPO"
 # ---------------------------------------------------
 # Universe (vanilla, docker)
 universe     = docker
-docker_image = registry.eps.surrey.ac.uk/pbn-rl:main
+docker_image = registry.eps.surrey.ac.uk/pbn-rl
 
 # -------------------------------------------------
 # Event, out and error logs
