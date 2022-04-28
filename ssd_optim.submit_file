@@ -42,7 +42,7 @@ executable    = /usr/local/bin/python3
 arguments = $(script) --resets $(resets) --iters $(iters) --bit-flip-prob $(bit_flip_prob) --env $(env)
 
 script = $ENV(PWD)/ssd_param_optim.py
-env = envs/n_28.pkl
+env = $ENV(PWD)/envs/n_28.pkl
 bit_flip_prob = 0.01
 
 # Make the checkpoint location depend on the variables we use to run the model
