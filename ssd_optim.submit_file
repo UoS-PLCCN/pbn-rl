@@ -43,6 +43,7 @@ arguments = $(script) --resets $(resets) --iters $(iters) --bit-flip-prob $(bit_
 
 script = $ENV(PWD)/ssd_param_optim.py
 env = envs/n_28.pkl
+bit_flip_prob = 0.01
 
 # Make the checkpoint location depend on the variables we use to run the model
 resets = 10
