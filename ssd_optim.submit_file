@@ -9,9 +9,9 @@ docker_image = registry.eps.surrey.ac.uk/pbn-rl
 
 # -------------------------------------------------
 # Event, out and error logs
-log    = r$(resets).i$(iters).log
-output = r$(resets).i$(iters).out
-error  = r$(resets).i$(iters).error
+log    = logs/r$(resets).i$(iters).log
+output = outs/r$(resets).i$(iters).out
+error  = logs/error/r$(resets).i$(iters).error
 
 # -----------------------------------
 # File Transfer, Input, Output
