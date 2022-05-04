@@ -22,12 +22,14 @@ class DDQN:
         env: PBNTargetEnv = None,
         device: torch.device = "cpu",
         policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
+        buffer_size: int = 5120,
+        batch_size: int = 128,
+        target_update: int = 1000,
         gamma=0.01,
+        horizon=11,
     ):
         self.device = device
 
-        # The size of the PBN
-        # HACK only works for our current env
         self.input_size = env.observation_space.n
         self.output_size = env.action_space.n
 
@@ -45,6 +47,11 @@ class DDQN:
 
         # Reinforcement learning parameters
         self.gamma = gamma
+        self.buffer_size = buffer_size
+        self.batch_size = batch_size
+        self.EPSILON = 1
+        self.TARGET_UPDATE = target_update
+        self.horizon = horizon
 
         # State
         self.train = False
@@ -57,9 +64,14 @@ class DDQN:
             device,
             gamma=state_dict["gamma"],
             policy_kwargs=state_dict["policy_kwargs"],
+            buffer_size=state_dict["buffer_size"],
+            batch_size=state_dict["batch_size"],
+            target_update=state_dict["target_update"],
         )
         agent.controller.load_state_dict(state_dict["model"])
         agent.target.load_state_dict(state_dict["model"])
+        agent.EPSILON = state_dict["epsilon"]
+        agent.current_episode = state_dict["current_episode"]
 
     def save(self, path):
         state_dict = {
@@ -67,7 +79,10 @@ class DDQN:
             "policy_kwargs": self.policy_kwargs,
             "gamma": self.gamma,
             "epsilon": self.EPSILON,
-            "steps": self.train_steps,
+            "current_episode": self.current_episode,
+            "buffer_size": self.buffer_size,
+            "batch_size": self.batch_size,
+            "target_update": self.TARGET_UPDATE,
         }
 
         with open(path) as f:
@@ -81,8 +96,8 @@ class DDQN:
             action = q_vals.max(0)[1].view(1, 1).item()
         return action
 
-    def predict(self, state, deterministic: bool = True) -> int:
-        if self.train and random.uniform(0, 1) <= self.EPSILON:
+    def predict(self, state, deterministic: bool = False) -> int:
+        if self.train and not deterministic and random.uniform(0, 1) <= self.EPSILON:
             return random.choice(self.actions)
         else:
             return self._get_learned_action(state)
@@ -140,7 +155,7 @@ class DDQN:
         """
         # Calculate predicted actions
         with torch.no_grad():
-            vals = self.controller(next_states)  # TODO Wait shouldn't this be target?
+            vals = self.controller(next_states)
             action_prime = vals.max(1)[1].unsqueeze(1)
 
         # Calculate current and target Q to calculate loss
@@ -162,43 +177,46 @@ class DDQN:
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-    def learn(self, steps):
-        # TODO params
-        self.toggle_train(steps, ...)
+    def learn(
+        self, total_episodes, checkpoint_freq: int = 25_000, checkpoint_path=None
+    ):
+        self.toggle_train(total_episodes)
+        total_steps = 0
 
-        # TODO init environment
-        for step in steps:
-            # TODO training loop
-            ...
+        for _ in range(self.current_episode, total_episodes):
+            self.env.reset()
+            current_step, done = 0, False
 
-        if len(self.replay_memory) >= self.batch_size:
-            (
-                state_batch,
-                action_batch,
-                reward_batch,
-                next_state_batch,
-                dones,
-            ) = self._fetch_minibatch()
-            loss = self._get_loss(
-                state_batch, action_batch, reward_batch, next_state_batch, dones
-            )
-            self._back_propagate(loss)
-        self.train_count += 1
+            while not done and current_step < self.horizon:
+                total_steps += 1
+                state = self.env.render()
+                action = self.predict(state)
+                next_state, reward, done, _ = self.env.step(action)
+                self.replay_memory.store(
+                    Transition(state, reward, action, next_state, done)
+                )
 
-        # Oh yeah after every TARGET_UPDATE steps the target network gets updated.
-        if self.train_count % self.TARGET_UPDATE == 0:
-            self.target.load_state_dict(self.controller.state_dict())
+                if len(self.replay_memory) >= self.batch_size:
+                    (
+                        state_batch,
+                        action_batch,
+                        reward_batch,
+                        next_state_batch,
+                        dones,
+                    ) = self._fetch_minibatch()
+                    loss = self._get_loss(
+                        state_batch, action_batch, reward_batch, next_state_batch, dones
+                    )
+                    self._back_propagate(loss)
 
-    def feedback(self, transition: Transition, learn: bool = True):
-        """Save an experience tuple, do a step of back propagation.
+                if total_steps % self.TARGET_UPDATE == 0:
+                    self.target.load_state_dict(self.controller.state_dict())
 
-        Args:
-            transition (Transition): Transition :)
-            learn (bool, optional): Whether or not to do a step of back propagation.
-        """
-        self.replay_memory.store(transition)
-        if learn:
-            self.learn()
+            self.current_episode += 1
+            if self.current_episode % checkpoint_freq == 0:
+                self.save(checkpoint_path)
+
+            self.decrement_epsilon()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
@@ -206,40 +224,79 @@ class DDQN:
 
     def toggle_train(
         self,
-        steps: int,
-        batch_size: int,
-        memory_size: int,
-        min_epsilon: float,
-        target_update: int,
+        total_episodes: int,
+        min_epsilon: float = 0.01,
+        max_epsilon: float = 1,
     ):
-        """Setting all of the training params.
-
-        Args:
-            conf (TrainingConfig): the training configuration
-        """
+        """Setting all of the training params."""
         self.train = True
-        self.train_steps = steps
-        self.train_count = 0
+        self.train_episodes = total_episodes
 
         self.optimizer = optim.RMSprop(self.controller.parameters())
 
         # Memory
-        self.batch_size = batch_size
-        self.replay_memory = ExperienceReplay(memory_size)
+        self.replay_memory = ExperienceReplay(self.buffer_size)
 
         # Explore-exploit
-        self.EPSILON = 1
-        self.MAX_EPSILON = 1
+        self.MAX_EPSILON = max_epsilon
         self.MIN_EPSILON = min_epsilon
         self.EPSILON_DECREMENT = (
             self.MAX_EPSILON - self.MIN_EPSILON
-        ) / self.train_steps
-
-        self.TARGET_UPDATE = target_update
+        ) / self.train_episodes
 
 
 class DDQNPER(DDQN):
     """Agent using Prioritized Experience Replay."""
+
+    def __init__(
+        self,
+        env: PBNTargetEnv = None,
+        device: torch.device = "cpu",
+        policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
+        buffer_size: int = 5120,
+        batch_size: int = 128,
+        target_update: int = 1000,
+        gamma=0.01,
+    ):
+        super().__init__(
+            env, device, policy_kwargs, buffer_size, batch_size, target_update, gamma
+        )
+        self.replay_memory = PrioritisedER(self.buffer_size)
+        self.BETA = 0.4
+
+    @classmethod
+    def load(cls, path, env: PBNTargetEnv = None, device: torch.device = "cpu"):
+        state_dict = torch.load(path)
+        agent = cls(
+            env,
+            device,
+            gamma=state_dict["gamma"],
+            policy_kwargs=state_dict["policy_kwargs"],
+            buffer_size=state_dict["buffer_size"],
+            batch_size=state_dict["batch_size"],
+            target_update=state_dict["target_update"],
+        )
+        agent.controller.load_state_dict(state_dict["model"])
+        agent.target.load_state_dict(state_dict["model"])
+        agent.EPSILON = state_dict["epsilon"]
+        agent.BETA = state_dict["beta"]
+        agent.current_episode = state_dict["current_episode"]
+
+    def save(self, path):
+        state_dict = {
+            "params": self.controller.state_dict(),
+            "policy_kwargs": self.policy_kwargs,
+            "gamma": self.gamma,
+            "epsilon": self.EPSILON,
+            "current_episode": self.current_episode,
+            "buffer_size": self.buffer_size,
+            "batch_size": self.batch_size,
+            "target_update": self.TARGET_UPDATE,
+            "beta": self.BETA,
+        }
+
+        with open(path) as f:
+            torch.save(state_dict, f)
 
     def _fetch_minibatch(self) -> PERMinibatch:
         """Fetch a minibatch from the replay memory and load it into the chosen device.
@@ -285,58 +342,85 @@ class DDQNPER(DDQN):
             weights,
         )
 
-    def learn(self):
-        """Sample a minibatch of experiences, do a step of back propagation."""
-        if len(self.replay_memory) >= self.batch_size:
-            (
-                state_batch,
-                action_batch,
-                reward_batch,
-                next_state_batch,
-                dones,
-                indices,
-                weights,
-            ) = self._fetch_minibatch()
-            loss = self._get_loss(
-                state_batch,
-                action_batch,
-                reward_batch,
-                next_state_batch,
-                dones,
-                reduction="none",
-            )
-            loss *= weights
+    def learn(
+        self, total_episodes, checkpoint_freq: int = 25_000, checkpoint_path=None
+    ):
+        self.toggle_train(total_episodes)
+        total_steps = 0
 
-            # Update priorities in the PER buffer
-            priorities = loss + self.REPLAY_CONSTANT
-            # TODO Wait don't these have to be positive? Maybe need to abs()?
-            self.replay_memory.update_priorities(
-                indices, priorities.data.detach().squeeze().cpu().numpy().tolist()
-            )
+        for _ in range(self.current_episode, total_episodes):
+            self.env.reset()
+            current_step, done = 0, False
 
-            # Back propagation
-            loss = loss.mean()
-            self._back_propagate(loss)
-        self.train_count += 1
+            while not done and current_step < self.horizon:
+                total_steps += 1
+                state = self.env.render()
+                action = self.predict(state)
+                next_state, reward, done, _ = self.env.step(action)
+                self.replay_memory.store(
+                    Transition(state, reward, action, next_state, done)
+                )
 
-        # Oh yeah after every TARGET_UPDATE steps the target network gets updated.
-        if self.train_count % self.TARGET_UPDATE == 0:
-            self.target.load_state_dict(self.controller.state_dict())
+                if len(self.replay_memory) >= self.batch_size:
+                    (
+                        state_batch,
+                        action_batch,
+                        reward_batch,
+                        next_state_batch,
+                        dones,
+                        indices,
+                        weights,
+                    ) = self._fetch_minibatch()
+                    loss = self._get_loss(
+                        state_batch,
+                        action_batch,
+                        reward_batch,
+                        next_state_batch,
+                        dones,
+                        reduction="none",
+                    )
+                    loss *= weights
+
+                    # Update priorities in the PER buffer
+                    priorities = loss + self.REPLAY_CONSTANT
+                    self.replay_memory.update_priorities(
+                        indices,
+                        priorities.data.detach().squeeze().cpu().numpy().tolist(),
+                    )
+
+                    # Back propagation
+                    loss = loss.mean()
+                    self._back_propagate(loss)
+
+                if total_steps % self.TARGET_UPDATE == 0:
+                    self.target.load_state_dict(self.controller.state_dict())
+
+            self.current_episode += 1
+            if self.current_episode % checkpoint_freq == 0:
+                self.save(checkpoint_path)
+
+            self.decrement_epsilon()
+            self.increment_beta()
 
     def increment_beta(self):
         """Increment the beta exponent."""
         self.BETA = min(self.BETA + self.BETA_INCREMENT_CONSTANT, 1)
 
-    def toggle_train(self, **kwargs):
+    def toggle_train(
+        self,
+        total_episodes: int,
+        min_epsilon: float = 0.01,
+        max_epsilon: float = 1,
+        max_beta: float = 0.4,
+    ):
         """Setting all of the training params.
 
         Args:
             conf (TrainingConfig): the training configuration
         """
-        super().toggle_train(**kwargs)
+        super().toggle_train(total_episodes, min_epsilon, max_epsilon)
 
         # PER
         self.REPLAY_CONSTANT = 1e-5
-        self.BETA = 0.4
-        self.BETA_INCREMENT_CONSTANT = self.BETA / (0.75 * self.train_steps)
-        self.replay_memory = PrioritisedER(kwargs["memory_size"])
+        self.MAX_BETA = max_beta
+        self.BETA_INCREMENT_CONSTANT = self.MAX_BETA / (0.75 * self.train_episodes)

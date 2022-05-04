@@ -1,15 +1,10 @@
-import pickle
-from stable_baselines3 import PPO
-from stable_baselines3.common.logger import configure
+from ddqn_per import DDQNPER
 import argparse
 import torch
-import random
+import pickle
 import numpy as np
-from utils import SaveOnBestTrainingRewardCallback
+import random
 from pathlib import Path
-import json
-
-model = PPO
 
 # Parse settings
 parser = argparse.ArgumentParser(description="Train an RL model for target control.")
@@ -38,37 +33,17 @@ torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 random.seed(args.seed)
 
+# Checkpoints
+Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
+checkpoint_path = Path(args.checkpoint_dir) / f"ddqn_per_{Path(args.env).name}.pt"
+
 # Load env
 with open(args.env, "rb") as f:
     env = pickle.load(f)
 
-
-# set up logs
-logger = configure("logs", ["csv"])
-save_callback = SaveOnBestTrainingRewardCallback(check_freq=1_000, log_dir="logs")
-
-# Checkpoints
-Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
-
-
-def get_latest_checkpoint():
-    model_path = Path(args.checkpoint_dir) / "model"
-    metadata_path = Path(args.checkpoint_dir) / "metadata.json"
-    with open(metadata_path) as f:
-        metadata = json.load(f)
-
-    return model_path, metadata
-
-
-# Model
-time_steps = args.time_steps
 if args.resume_training:
-    model_path, metadata = get_latest_checkpoint()
-    model = model.load(model_path, env, device=DEVICE, logger=logger)
-    start_step = args.time_steps - metadata["step"]
+    model = DDQNPER.load(checkpoint_path, env, DEVICE)
 else:
-    model = model("MlpPolicy", env, device=DEVICE)
-    model.logger(logger)
+    model = DDQNPER(env, DEVICE)
 
-# Train
-model.learn(time_steps, callback=SaveOnBestTrainingRewardCallback)
+model.learn(250_000, checkpoint_path=checkpoint_path)
