@@ -8,7 +8,7 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 
-model = PPO
+model_cls = PPO
 model_name = "PPO"
 
 # Parse settings
@@ -72,13 +72,13 @@ def get_latest_checkpoint():
 
 # Model
 time_steps = args.time_steps
-model = model(
+model = model_cls(
     "MlpPolicy", env, device=DEVICE, tensorboard_log=TOP_LEVEL_LOG_DIR / RUN_NAME
 )
 
 if args.resume_training:
     model_path = get_latest_checkpoint()
-    model = model.load(model_path, env, device=DEVICE)
+    model = model_cls.load(model_path, env, device=DEVICE)
 
     total_time_steps = args.time_steps
     time_steps = total_time_steps - model.num_timesteps
