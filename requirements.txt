@@ -1,7 +1,13 @@
-stable-baselines3[extras]
-gym
-git+https://github.com/UoS-PLCCN/gym-PBN@08d42a5
+# Pretty output
 tqdm
 plotly_express==0.4.1
 kaleido
+# SB3
+stable-baselines3[extras]
 pytest
+pygame
+tensorboard
+imageio
+# PBN
+gym
+git+https://github.com/UoS-PLCCN/gym-PBN@0cd4b9b5
