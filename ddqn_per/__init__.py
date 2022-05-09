@@ -2,12 +2,16 @@
 main.py - This module holds the actual Agent.
 """
 import random
+from collections import deque
+from math import prod
 
+import numpy as np
 import torch
+from gym.spaces import Box, Discrete, MultiBinary
+from gym_PBN.envs.pbn_target import PBNTargetEnv
 from torch import optim
 from torch.nn import functional as F
-
-from gym_PBN.envs.pbn_target import PBNTargetEnv
+from torch.utils.tensorboard import SummaryWriter
 
 from .memory import ExperienceReplay, PrioritisedER, Transition
 from .network import DQN
@@ -21,17 +25,25 @@ class DDQN:
         self,
         env: PBNTargetEnv = None,
         device: torch.device = "cpu",
+        input_size: int = None,
+        output_size: int = None,
         policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
         buffer_size: int = 5120,
         batch_size: int = 128,
         target_update: int = 1000,
         gamma=0.01,
-        horizon=11,
     ):
         self.device = device
 
-        self.input_size = env.observation_space.n
-        self.output_size = env.action_space.n
+        self.input_size = input_size
+        if not self.input_size:
+            if type(env.observation_space) == MultiBinary:
+                self.input_size = env.observation_space.n
+            elif type(env.observation_space) == Box:
+                self.input_size = prod(env.observation_space.shape)
+
+        # TODO Only discrete fro now
+        self.output_size = output_size if output_size else env.action_space.n
 
         self.env = env
 
@@ -51,10 +63,14 @@ class DDQN:
         self.batch_size = batch_size
         self.EPSILON = 1
         self.TARGET_UPDATE = target_update
-        self.horizon = horizon
+        self.LOG_INTERVAL = 100
+
+        # Memory
+        self.replay_memory = ExperienceReplay(self.buffer_size)
 
         # State
-        self.train = False
+        self.num_timesteps = 0
+        self.num_episodes = 0
 
     @classmethod
     def load(cls, path, env: PBNTargetEnv = None, device: torch.device = "cpu"):
@@ -64,28 +80,37 @@ class DDQN:
             device,
             gamma=state_dict["gamma"],
             policy_kwargs=state_dict["policy_kwargs"],
+            input_size=state_dict["input_size"],
+            output_size=state_dict["output_size"],
             buffer_size=state_dict["buffer_size"],
             batch_size=state_dict["batch_size"],
             target_update=state_dict["target_update"],
         )
-        agent.controller.load_state_dict(state_dict["model"])
-        agent.target.load_state_dict(state_dict["model"])
+        agent.controller.load_state_dict(state_dict["params"])
+        agent.target.load_state_dict(state_dict["params"])
         agent.EPSILON = state_dict["epsilon"]
-        agent.current_episode = state_dict["current_episode"]
+        agent.num_timesteps = state_dict["num_timesteps"]
+        agent.num_episodes = state_dict["num_episodes"]
+        agent.train_steps = state_dict["train_steps"]
+        return agent
 
     def save(self, path):
         state_dict = {
             "params": self.controller.state_dict(),
             "policy_kwargs": self.policy_kwargs,
+            "input_size": self.input_size,
+            "output_size": self.output_size,
             "gamma": self.gamma,
-            "epsilon": self.EPSILON,
-            "current_episode": self.current_episode,
             "buffer_size": self.buffer_size,
             "batch_size": self.batch_size,
+            "epsilon": self.EPSILON,
             "target_update": self.TARGET_UPDATE,
+            "train_steps": self.train_steps,
+            "num_timesteps": self.num_timesteps,
+            "num_episodes": self.num_episodes,
         }
 
-        with open(path) as f:
+        with open(path / f"ddqn_{self.num_timesteps}.pt") as f:
             torch.save(state_dict, f)
 
     def _get_learned_action(self, state) -> int:
@@ -93,12 +118,18 @@ class DDQN:
             q_vals = self.controller(
                 torch.tensor(state, device=self.device, dtype=torch.float)
             )
+            print(q_vals)
             action = q_vals.max(0)[1].view(1, 1).item()
+            print(action)
         return action
 
     def predict(self, state, deterministic: bool = False) -> int:
-        if self.train and not deterministic and random.uniform(0, 1) <= self.EPSILON:
-            return random.choice(self.actions)
+        if (
+            self.controller.training
+            and not deterministic
+            and random.uniform(0, 1) <= self.EPSILON
+        ):
+            return self.env.action_space.sample()
         else:
             return self._get_learned_action(state)
 
@@ -178,23 +209,33 @@ class DDQN:
         self.optimizer.step()
 
     def learn(
-        self, total_episodes, checkpoint_freq: int = 25_000, checkpoint_path=None
+        self,
+        total_steps,
+        checkpoint_freq: int = 25_000,
+        checkpoint_path=None,
+        resume_steps: int = None,
+        log_dir=None,
     ):
-        self.toggle_train(total_episodes)
-        total_steps = 0
+        writer = SummaryWriter(log_dir)
 
-        for _ in range(self.current_episode, total_episodes):
-            self.env.reset()
-            current_step, done = 0, False
+        self.toggle_train(total_steps)
+        training_done = False
+        if resume_steps:
+            self.num_timesteps = resume_steps
 
-            while not done and current_step < self.horizon:
-                total_steps += 1
-                state = self.env.render()
+        episode_reward, episode_steps = 0, 0
+
+        while not training_done:
+            state = self.env.reset()
+            done = False
+
+            while not done:
                 action = self.predict(state)
                 next_state, reward, done, _ = self.env.step(action)
                 self.replay_memory.store(
-                    Transition(state, reward, action, next_state, done)
+                    Transition(state, action, reward, next_state, done)
                 )
+                episode_reward += reward
 
                 if len(self.replay_memory) >= self.batch_size:
                     (
@@ -209,14 +250,43 @@ class DDQN:
                     )
                     self._back_propagate(loss)
 
-                if total_steps % self.TARGET_UPDATE == 0:
+                self.num_timesteps += 1
+                episode_steps += 1
+
+                if self.num_timesteps % self.TARGET_UPDATE == 0:
                     self.target.load_state_dict(self.controller.state_dict())
 
-            self.current_episode += 1
-            if self.current_episode % checkpoint_freq == 0:
-                self.save(checkpoint_path)
+                if self.num_timesteps % checkpoint_freq == 0:
+                    self.save(checkpoint_path)
 
-            self.decrement_epsilon()
+                self.decrement_epsilon()
+                writer.add_scalar(
+                    "hyperparams/epsilon", self.EPSILON, self.num_timesteps
+                )
+
+                state = next_state
+
+                if self.num_timesteps == self.train_steps:
+                    training_done = True
+                    break
+
+            self.num_episodes += 1
+            if self.num_episodes % self.LOG_INTERVAL == 0:
+                writer.add_scalar(
+                    "rollout/ep_rew_mean",
+                    episode_reward / self.LOG_INTERVAL,
+                    self.num_timesteps,
+                )
+                writer.add_scalar(
+                    "rollout/ep_len_mean",
+                    episode_steps / self.LOG_INTERVAL,
+                    self.num_timesteps,
+                )
+                episode_reward = 0
+                episode_steps = 0
+
+        self.env.close()
+        writer.close()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
@@ -224,25 +294,23 @@ class DDQN:
 
     def toggle_train(
         self,
-        total_episodes: int,
+        train_steps: int,
         min_epsilon: float = 0.01,
         max_epsilon: float = 1,
     ):
         """Setting all of the training params."""
-        self.train = True
-        self.train_episodes = total_episodes
+        self.controller.train()
+        self.target.train()
+        self.train_steps = train_steps
 
         self.optimizer = optim.RMSprop(self.controller.parameters())
-
-        # Memory
-        self.replay_memory = ExperienceReplay(self.buffer_size)
 
         # Explore-exploit
         self.MAX_EPSILON = max_epsilon
         self.MIN_EPSILON = min_epsilon
         self.EPSILON_DECREMENT = (
             self.MAX_EPSILON - self.MIN_EPSILON
-        ) / self.train_episodes
+        ) / self.train_steps
 
 
 class DDQNPER(DDQN):
@@ -252,6 +320,8 @@ class DDQNPER(DDQN):
         self,
         env: PBNTargetEnv = None,
         device: torch.device = "cpu",
+        input_size: int = None,
+        output_size: int = None,
         policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
         buffer_size: int = 5120,
         batch_size: int = 128,
@@ -259,7 +329,15 @@ class DDQNPER(DDQN):
         gamma=0.01,
     ):
         super().__init__(
-            env, device, policy_kwargs, buffer_size, batch_size, target_update, gamma
+            env,
+            device,
+            input_size,
+            output_size,
+            policy_kwargs,
+            buffer_size,
+            batch_size,
+            target_update,
+            gamma,
         )
         self.replay_memory = PrioritisedER(self.buffer_size)
         self.BETA = 0.4
@@ -272,31 +350,39 @@ class DDQNPER(DDQN):
             device,
             gamma=state_dict["gamma"],
             policy_kwargs=state_dict["policy_kwargs"],
+            input_size=state_dict["input_size"],
+            output_size=state_dict["output_size"],
             buffer_size=state_dict["buffer_size"],
             batch_size=state_dict["batch_size"],
             target_update=state_dict["target_update"],
         )
-        agent.controller.load_state_dict(state_dict["model"])
-        agent.target.load_state_dict(state_dict["model"])
+        agent.controller.load_state_dict(state_dict["params"])
+        agent.target.load_state_dict(state_dict["params"])
         agent.EPSILON = state_dict["epsilon"]
         agent.BETA = state_dict["beta"]
-        agent.current_episode = state_dict["current_episode"]
+        agent.num_timesteps = state_dict["num_timesteps"]
+        agent.num_episodes = state_dict["num_episodes"]
+        agent.train_steps = state_dict["train_steps"]
+        return agent
 
     def save(self, path):
         state_dict = {
             "params": self.controller.state_dict(),
             "policy_kwargs": self.policy_kwargs,
+            "input_size": self.input_size,
+            "output_size": self.output_size,
             "gamma": self.gamma,
-            "epsilon": self.EPSILON,
-            "current_episode": self.current_episode,
             "buffer_size": self.buffer_size,
             "batch_size": self.batch_size,
+            "epsilon": self.EPSILON,
             "target_update": self.TARGET_UPDATE,
             "beta": self.BETA,
+            "train_steps": self.train_steps,
+            "num_timesteps": self.num_timesteps,
+            "num_episodes": self.num_episodes,
         }
 
-        with open(path) as f:
-            torch.save(state_dict, f)
+        torch.save(state_dict, path / f"ddqnper_{self.num_timesteps}.pt")
 
     def _fetch_minibatch(self) -> PERMinibatch:
         """Fetch a minibatch from the replay memory and load it into the chosen device.
@@ -314,7 +400,7 @@ class DDQNPER(DDQN):
 
         # Load to device
         state_batch = torch.tensor(
-            state_batch, device=self.device, dtype=torch.float
+            np.array(state_batch), device=self.device, dtype=torch.float
         ).view(self.batch_size, self.input_size)
         action_batch = torch.tensor(
             action_batch, device=self.device, dtype=torch.long
@@ -323,7 +409,7 @@ class DDQNPER(DDQN):
             reward_batch, device=self.device, dtype=torch.float
         ).unsqueeze(1)
         next_state_batch = torch.tensor(
-            next_state_batch, device=self.device, dtype=torch.float
+            np.array(next_state_batch), device=self.device, dtype=torch.float
         ).view(self.batch_size, self.input_size)
         dones = torch.tensor(dones, device=self.device, dtype=torch.float).unsqueeze(1)
         weights = (
@@ -343,23 +429,36 @@ class DDQNPER(DDQN):
         )
 
     def learn(
-        self, total_episodes, checkpoint_freq: int = 25_000, checkpoint_path=None
+        self,
+        total_steps,
+        checkpoint_freq: int = 25_000,
+        checkpoint_path=None,
+        resume_steps: int = None,
+        log_dir=None,
     ):
-        self.toggle_train(total_episodes)
-        total_steps = 0
+        writer = SummaryWriter(log_dir)
 
-        for _ in range(self.current_episode, total_episodes):
-            self.env.reset()
-            current_step, done = 0, False
+        self.toggle_train(total_steps)
+        training_done = False
+        if resume_steps:
+            self.num_timesteps = resume_steps
 
-            while not done and current_step < self.horizon:
-                total_steps += 1
-                state = self.env.render()
+        episode_rewards, episode_steps = deque(maxlen=self.LOG_INTERVAL), deque(
+            maxlen=self.LOG_INTERVAL
+        )
+
+        while not training_done:
+            state = self.env.reset()
+            done = False
+            episode_reward, episode_step = 0, 0
+
+            while not done:
                 action = self.predict(state)
                 next_state, reward, done, _ = self.env.step(action)
                 self.replay_memory.store(
-                    Transition(state, reward, action, next_state, done)
+                    Transition(state, action, reward, next_state, done)
                 )
+                episode_reward += reward
 
                 if len(self.replay_memory) >= self.batch_size:
                     (
@@ -392,15 +491,45 @@ class DDQNPER(DDQN):
                     loss = loss.mean()
                     self._back_propagate(loss)
 
-                if total_steps % self.TARGET_UPDATE == 0:
+                self.num_timesteps += 1
+                episode_step += 1
+
+                if self.num_timesteps % self.TARGET_UPDATE == 0:
                     self.target.load_state_dict(self.controller.state_dict())
 
-            self.current_episode += 1
-            if self.current_episode % checkpoint_freq == 0:
-                self.save(checkpoint_path)
+                if self.num_timesteps % checkpoint_freq == 0:
+                    self.save(checkpoint_path)
 
-            self.decrement_epsilon()
-            self.increment_beta()
+                self.decrement_epsilon()
+                self.increment_beta()
+                writer.add_scalar("hyperparams/beta", self.BETA, self.num_timesteps)
+                writer.add_scalar(
+                    "hyperparams/epsilon", self.EPSILON, self.num_timesteps
+                )
+
+                state = next_state
+
+                if self.num_timesteps == self.train_steps:
+                    training_done = True
+                    break
+
+            episode_rewards.append(episode_reward)
+            episode_steps.append(episode_step)
+            self.num_episodes += 1
+            if self.num_episodes % self.LOG_INTERVAL == 0:
+                writer.add_scalar(
+                    "rollout/ep_rew_mean",
+                    sum(episode_rewards) / self.LOG_INTERVAL,
+                    self.num_timesteps,
+                )
+                writer.add_scalar(
+                    "rollout/ep_len_mean",
+                    sum(episode_steps) / self.LOG_INTERVAL,
+                    self.num_timesteps,
+                )
+
+        self.env.close()
+        writer.close()
 
     def increment_beta(self):
         """Increment the beta exponent."""
@@ -408,7 +537,7 @@ class DDQNPER(DDQN):
 
     def toggle_train(
         self,
-        total_episodes: int,
+        train_steps: int,
         min_epsilon: float = 0.01,
         max_epsilon: float = 1,
         max_beta: float = 0.4,
@@ -418,9 +547,9 @@ class DDQNPER(DDQN):
         Args:
             conf (TrainingConfig): the training configuration
         """
-        super().toggle_train(total_episodes, min_epsilon, max_epsilon)
+        super().toggle_train(train_steps, min_epsilon, max_epsilon)
 
         # PER
         self.REPLAY_CONSTANT = 1e-5
         self.MAX_BETA = max_beta
-        self.BETA_INCREMENT_CONSTANT = self.MAX_BETA / (0.75 * self.train_episodes)
+        self.BETA_INCREMENT_CONSTANT = self.MAX_BETA / (0.75 * self.train_steps)
