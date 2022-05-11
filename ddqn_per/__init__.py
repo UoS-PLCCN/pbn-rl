@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from gym.spaces import Box, Discrete, MultiBinary
 from gym_PBN.envs.pbn_target import PBNTargetEnv
-from torch import optim
+from torch import log_, optim
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
@@ -29,11 +29,16 @@ class DDQN:
         device: torch.device = "cpu",
         input_size: int = None,
         output_size: int = None,
-        policy_kwargs: dict = {"net_arch": [(64, 64)]},
-        buffer_size: int = 50_000,
+        policy_kwargs: dict = {"net_arch": [(120, 84)]},
+        buffer_size: int = 1_000_000,
         batch_size: int = 256,
-        target_update: int = 5000,
+        target_update: int = 1_000,
         gamma=0.99,
+        max_epsilon: float = 1.0,
+        min_epsilon: float = 0.05,
+        exploration_fraction: float = 0.5,
+        learning_rate: float = 0.01,
+        max_grad_norm: float = 10.0,
     ):
         self.device = device
 
@@ -62,6 +67,7 @@ class DDQN:
             self.device
         )
         self.target.load_state_dict(self.controller.state_dict())
+        self.learning_rate = learning_rate
 
         # Reinforcement learning parameters
         self.gamma = gamma
@@ -70,12 +76,17 @@ class DDQN:
         self.EPSILON = 1
         self.TARGET_UPDATE = target_update
         self.LOG_INTERVAL = 100
+        self.MAX_EPSILON = max_epsilon
+        self.MIN_EPSILON = min_epsilon
+        self.exploration_fraction = exploration_fraction
+        self.max_grad_norm = max_grad_norm
 
         # Memory
         self.replay_memory = ExperienceReplay(self.buffer_size)
 
         # State
         self.num_timesteps = 0
+        self.log = False
 
     @classmethod
     def _load_helper(cls, path, env, device):
@@ -90,6 +101,11 @@ class DDQN:
             buffer_size=state_dict["buffer_size"],
             batch_size=state_dict["batch_size"],
             target_update=state_dict["target_update"],
+            max_epsilon=state_dict["max_epsilon"],
+            min_epsilon=state_dict["min_epsilon"],
+            exploration_fraction=state_dict["exploration_fraction"],
+            learning_rate=state_dict["learning_rate"],
+            max_grad_norm=state_dict["max_grad_norm"],
         )
         agent.controller.load_state_dict(state_dict["params"])
         agent.target.load_state_dict(state_dict["params"])
@@ -114,6 +130,12 @@ class DDQN:
             "batch_size": self.batch_size,
             "epsilon": self.EPSILON,
             "target_update": self.TARGET_UPDATE,
+            "gamma": self.gamma,
+            "max_epsilon": self.MAX_EPSILON,
+            "min_epsilon": self.MIN_EPSILON,
+            "exploration_fraction": self.exploration_fraction,
+            "learning_rate": self.learning_rate,
+            "max_grad_norm": self.max_grad_norm,
             "train_steps": self.train_steps,
             "num_timesteps": self.num_timesteps,
         }
@@ -195,14 +217,18 @@ class DDQN:
         """
         # Calculate predicted actions
         with torch.no_grad():
-            vals = self.controller(next_states)
-            action_prime = vals.max(1)[1].unsqueeze(1)
+            action_prime = self.controller(next_states).max(dim=1)[1].unsqueeze(1)
             target_Q = rewards + (1 - dones) * self.gamma * self.target(
                 next_states
             ).gather(1, action_prime)
 
         # Calculate current and target Q to calculate loss
         controller_Q = self.controller(states).gather(1, actions)
+        if self.log:
+            self.writer.add_scalar(
+                "losses/q_values", controller_Q.mean().item(), self.num_timesteps
+            )
+
         return F.smooth_l1_loss(controller_Q, target_Q, reduction=reduction)
 
     def _back_propagate(self, loss: torch.Tensor):
@@ -213,16 +239,22 @@ class DDQN:
         """
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_value_(self.controller.parameters(), 1)
+        torch.nn.utils.clip_grad_norm_(self.controller.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
-    def _log_params(self, writer):
-        writer.add_scalar("rollout/epsilon", self.EPSILON, self.num_timesteps)
+        if self.log:
+            self.wandb.log({"loss": loss})
+
+    def _log_params(self):
+        self.writer.add_scalar("rollout/epsilon", self.EPSILON, self.num_timesteps)
 
     def _learn_step(self):
         batch = self._fetch_minibatch()
         loss = self._get_loss(*batch)
         self._back_propagate(loss)
+
+        if self.log and self.num_timesteps % self.LOG_INTERVAL == 0:
+            self.writer.add_scalar("losses/td_loss", loss, self.num_timesteps)
 
     def _schedule_step(self, step, checkpoint_freq, checkpoint_path=None):
         self.num_timesteps += 1
@@ -233,22 +265,63 @@ class DDQN:
         if (step + 1) % checkpoint_freq == 0 and checkpoint_path:
             self.save(checkpoint_path)
 
+    def _get_config(self):
+        return {
+            "gamma": self.gamma,
+            "policy": self.policy_kwargs,
+            "input_size": self.input_size,
+            "output_size": self.output_size,
+            "target_update": self.TARGET_UPDATE,
+            "buffer_size": self.buffer_size,
+            "batch_size": self.batch_size,
+            "learning_rate": self.learning_rate,
+            "max_epsilon": self.MAX_EPSILON,
+            "min_epsilon": self.MIN_EPSILON,
+            "exploration_fraction": self.exploration_fraction,
+            "max_grad_norm": self.max_grad_norm,
+            "train_steps": self.train_steps,
+        }
+
     def learn(
         self,
         total_steps,
+        learning_starts: int = 10_000,
+        train_frequency: int = 4,
         checkpoint_freq: int = 25_000,
         checkpoint_path: str = None,
         resume_steps: int = None,
         log: bool = True,
         log_name: str = "ddqn",
         log_dir=None,
+        wandb_params={"project": "pbn-rl", "entity": "uos-plccn"},
     ):
-        if log:
-            writer = SummaryWriter(Path(log_dir) / log_name)
-
         self.toggle_train(total_steps)
         if resume_steps:
             self.num_timesteps = resume_steps
+
+        if log:
+            self.log = True
+            import wandb
+
+            config = self._get_config()
+            config["train_frequency"] = train_frequency
+            config["learning_starts"] = learning_starts
+            wandb.init(
+                project=wandb_params["project"],
+                entity=wandb_params["entity"],
+                sync_tensorboard=True,
+                config=config,
+                name=log_name,
+                save_code=True,
+            )
+            wandb.watch(self.controller, log="all", log_freq=self.LOG_INTERVAL)
+            self.writer = SummaryWriter(Path(log_dir) / log_name)
+            self.wandb = wandb
+            hyperparam_print = "\n".join(
+                ["|param|value|", "|-|-|"]
+                + [f"|{key}|{value}" for key, value in config.items()]
+            )
+            self.writer.add_text("hyperparameters", hyperparam_print)
 
         episodes = 0
 
@@ -265,17 +338,17 @@ class DDQN:
                     print(
                         f"Episode {episodes}: rew_100 - {ep_rew_mean}, len_100 - {ep_len_mean}"
                     )
-                    writer.add_scalar(
+                    self.writer.add_scalar(
                         "rollout/ep_rew_mean",
                         ep_rew_mean,
                         self.num_timesteps,
                     )
-                    writer.add_scalar(
+                    self.writer.add_scalar(
                         "rollout/ep_len_mean",
                         ep_len_mean,
                         self.num_timesteps,
                     )
-                    self._log_params(writer)
+                    self._log_params()
 
             self.replay_memory.store(
                 Transition(
@@ -287,8 +360,11 @@ class DDQN:
                 )
             )
 
-            # TODO finer control here
-            if len(self.replay_memory) >= self.batch_size:
+            if (
+                self.num_timesteps > learning_starts
+                and len(self.replay_memory) >= self.batch_size
+                and global_step % train_frequency == 0
+            ):
                 self._learn_step()
 
             # Schedules
@@ -301,7 +377,8 @@ class DDQN:
         # Cleanup
         self.env.close()
         if log:
-            writer.close()
+            self.writer.close()
+            wandb.finish()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
@@ -310,22 +387,19 @@ class DDQN:
     def toggle_train(
         self,
         train_steps: int,
-        min_epsilon: float = 0.01,
-        max_epsilon: float = 1,
     ):
         """Setting all of the training params."""
         self.controller.train()
-        self.target.train()
         self.train_steps = train_steps
 
-        self.optimizer = optim.RMSprop(self.controller.parameters(), lr=0.01)
+        self.optimizer = optim.RMSprop(
+            self.controller.parameters(), lr=self.learning_rate
+        )
 
         # Explore-exploit
-        self.MAX_EPSILON = max_epsilon
-        self.MIN_EPSILON = min_epsilon
-        self.EPSILON_DECREMENT = (
-            self.MAX_EPSILON - self.MIN_EPSILON
-        ) / self.train_steps
+        self.EPSILON_DECREMENT = (self.MAX_EPSILON - self.MIN_EPSILON) / (
+            self.exploration_fraction * self.train_steps
+        )
 
 
 class DDQNPER(DDQN):
@@ -333,8 +407,13 @@ class DDQNPER(DDQN):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.replay_memory = PrioritisedER(self.buffer_size)
         self.BETA = 0.4
+        self.MIN_BETA = 0.4
+        self.MAX_BETA = 1.0
+        self.ALPHA = 0.6
+        self.REPLAY_CONSTANT = 1e-5
+        self.beta_fraction = 0.75
+        self.replay_memory = PrioritisedER(self.buffer_size, self.ALPHA)
 
     @classmethod
     def load(cls, path, env: PBNTargetEnv = None, device: torch.device = "cpu"):
@@ -347,9 +426,9 @@ class DDQNPER(DDQN):
         ret["beta"] = self.BETA
         return ret
 
-    def _log_params(self, writer):
-        super()._log_params(writer)
-        writer.add_scalar("rollout/beta", self.BETA, self.num_timesteps)
+    def _log_params(self):
+        super()._log_params()
+        self.writer.add_scalar("rollout/beta", self.BETA, self.num_timesteps)
 
     def _learn_step(self):
         minibatch = self._fetch_minibatch()
@@ -367,6 +446,9 @@ class DDQNPER(DDQN):
         # Back propagation
         loss = loss.mean()
         self._back_propagate(loss)
+
+        if self.log and self.num_timesteps % self.LOG_INTERVAL == 0:
+            self.writer.add_scalar("losses/td_loss", loss, self.num_timesteps)
 
     def _schedule_step(self, step, checkpoint_freq, checkpoint_path=None):
         super()._schedule_step(step, checkpoint_freq, checkpoint_path)
@@ -393,6 +475,14 @@ class DDQNPER(DDQN):
             "per_data": (indices, weights),
         }
 
+    def _get_config(self):
+        config = super()._get_config()
+        config["max_beta"] = self.MAX_BETA
+        config["min_beta"] = self.MIN_BETA
+        config["beta_fraction"] = self.beta_fraction
+        config["per_alpha"] = self.ALPHA
+        return config
+
     def increment_beta(self):
         """Increment the beta exponent."""
         self.BETA = min(self.BETA + self.BETA_INCREMENT, 1)
@@ -400,22 +490,15 @@ class DDQNPER(DDQN):
     def toggle_train(
         self,
         train_steps: int,
-        min_epsilon: float = 0.01,
-        max_epsilon: float = 1,
-        max_beta: float = 1.0,
     ):
         """Setting all of the training params.
 
         Args:
             conf (TrainingConfig): the training configuration
         """
-        super().toggle_train(train_steps, min_epsilon, max_epsilon)
+        super().toggle_train(train_steps)
 
-        # PER
-        self.REPLAY_CONSTANT = 1e-5
-        self.MIN_BETA = 0.4
-        self.MAX_BETA = max_beta
         # Reach 1 after 75% of training
         self.BETA_INCREMENT = (self.MAX_BETA - self.MIN_BETA) / (
-            0.75 * self.train_steps
+            self.beta_fraction * self.train_steps
         )
