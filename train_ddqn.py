@@ -34,6 +34,7 @@ parser.add_argument(
 parser.add_argument(
     "--eval-only", action="store_true", default=False, help="evaluate only"
 )
+parser.add_argument("--run-name", type="str", default="1", help="Run name.")
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 DEVICE = torch.device("cuda" if use_cuda else "cpu")
@@ -45,9 +46,9 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 
 # Load env
-with open(args.env, "rb") as f:
-    env = pickle.load(f)
-# env = gym.make("CartPole-v1")
+# with open(args.env, "rb") as f:
+#     env = pickle.load(f)
+env = gym.make("CartPole-v1")
 
 # set up logs
 TOP_LEVEL_LOG_DIR = Path("logs")
@@ -86,5 +87,8 @@ if not args.eval_only:
         checkpoint_freq=10_000,
         checkpoint_path=checkpoint_path,
         resume_steps=resume_steps,
-        log_dir=TOP_LEVEL_LOG_DIR / RUN_NAME / f"run_{total_time_steps}",
+        log_dir=TOP_LEVEL_LOG_DIR
+        / RUN_NAME
+        / f"run_{total_time_steps}_{args.run_name}",
+        log=True,
     )

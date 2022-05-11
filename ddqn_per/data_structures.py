@@ -1,9 +1,9 @@
-from typing import Callable, List
 import operator
+from typing import Callable, List
 
 
 class SegmentTree:
-    """Implementation of a Segment Tree data structure."""
+    """Implementation of a Segment Tree data structure. Heavily based on https://github.com/openai/baselines/blob/ea25b9e8b234e6ee1bca43083f8f3cf974143998/baselines/common/segment_tree.py."""
 
     def __init__(
         self, size: int, operation: Callable[[object, object], object], identity: object
@@ -15,9 +15,15 @@ class SegmentTree:
             operation (Callable[[object, object], object]): the operation (lambda) to answer quick queries for.
             identity (object): the identity element for said operation.
         """
+        assert (
+            size > 0 and size & (size - 1) == 0
+        ), "capacity must be positive and a power of 2."
         self.size = size
         self.operation = operation
         self.identity = identity
+        self.clear()
+
+    def clear(self):
         self.data = [self.identity for _ in range(2 * self.size)]
 
     def _reduce(
@@ -92,6 +98,7 @@ class SegmentTree:
         Returns:
             object: the element at the given index.
         """
+        assert 0 <= index < self.size
         return self.data[self.size + index]
 
     def get_values(self, end: int = None) -> List[object]:
@@ -128,6 +135,31 @@ class SumSegmentTree(SegmentTree):
             float: the sum in the given range
         """
         return super().reduce(start, end)
+
+    def find_prefixsum_index(self, prefixsum):
+        """Find the highest index `i` in the array such that
+            sum(arr[0] + arr[1] + ... + arr[i - i]) <= prefixsum
+        if array values are probabilities, this function
+        allows to sample indexes according to the discrete
+        probability efficiently.
+        Parameters
+        ----------
+        perfixsum: float
+            upperbound on the sum of array prefix
+        Returns
+        -------
+        idx: int
+            highest index satisfying the prefixsum constraint
+        """
+        assert 0 <= prefixsum <= self.sum() + 1e-5
+        index = 1
+        while index < self.size:  # while non-leaf
+            if self.data[2 * index] > prefixsum:
+                index = 2 * index
+            else:
+                prefixsum -= self.data[2 * index]
+                index = 2 * index + 1
+        return index - self.size
 
 
 class MinSegmentTree(SegmentTree):

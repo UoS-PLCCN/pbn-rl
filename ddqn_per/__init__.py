@@ -27,11 +27,11 @@ class DDQN:
         device: torch.device = "cpu",
         input_size: int = None,
         output_size: int = None,
-        policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
-        buffer_size: int = 5120,
-        batch_size: int = 128,
-        target_update: int = 1000,
-        gamma=0.01,
+        policy_kwargs: dict = {"net_arch": [(64, 64)]},
+        buffer_size: int = 50_000,
+        batch_size: int = 256,
+        target_update: int = 5000,
+        gamma=0.99,
     ):
         self.device = device
 
@@ -118,9 +118,8 @@ class DDQN:
             q_vals = self.controller(
                 torch.tensor(state, device=self.device, dtype=torch.float)
             )
-            print(q_vals)
-            action = q_vals.max(0)[1].view(1, 1).item()
-            print(action)
+            # max along the 0th dimension, get the index of the max value, return it
+            action = q_vals.max(0)[1].item()
         return action
 
     def predict(self, state, deterministic: bool = False) -> int:
@@ -214,9 +213,11 @@ class DDQN:
         checkpoint_freq: int = 25_000,
         checkpoint_path=None,
         resume_steps: int = None,
+        log=True,
         log_dir=None,
     ):
-        writer = SummaryWriter(log_dir)
+        if log:
+            writer = SummaryWriter(log_dir)
 
         self.toggle_train(total_steps)
         training_done = False
@@ -256,13 +257,14 @@ class DDQN:
                 if self.num_timesteps % self.TARGET_UPDATE == 0:
                     self.target.load_state_dict(self.controller.state_dict())
 
-                if self.num_timesteps % checkpoint_freq == 0:
+                if self.num_timesteps % checkpoint_freq == 0 and checkpoint_path:
                     self.save(checkpoint_path)
 
                 self.decrement_epsilon()
-                writer.add_scalar(
-                    "hyperparams/epsilon", self.EPSILON, self.num_timesteps
-                )
+                if log:
+                    writer.add_scalar(
+                        "hyperparams/epsilon", self.EPSILON, self.num_timesteps
+                    )
 
                 state = next_state
 
@@ -271,7 +273,7 @@ class DDQN:
                     break
 
             self.num_episodes += 1
-            if self.num_episodes % self.LOG_INTERVAL == 0:
+            if self.num_episodes % self.LOG_INTERVAL == 0 and log:
                 writer.add_scalar(
                     "rollout/ep_rew_mean",
                     episode_reward / self.LOG_INTERVAL,
@@ -286,7 +288,9 @@ class DDQN:
                 episode_steps = 0
 
         self.env.close()
-        writer.close()
+
+        if log:
+            writer.close()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
@@ -303,7 +307,7 @@ class DDQN:
         self.target.train()
         self.train_steps = train_steps
 
-        self.optimizer = optim.RMSprop(self.controller.parameters())
+        self.optimizer = optim.RMSprop(self.controller.parameters(), lr=0.01)
 
         # Explore-exploit
         self.MAX_EPSILON = max_epsilon
@@ -322,11 +326,11 @@ class DDQNPER(DDQN):
         device: torch.device = "cpu",
         input_size: int = None,
         output_size: int = None,
-        policy_kwargs: dict = {"net_arch": [(100, 100), (100, 100)]},
-        buffer_size: int = 5120,
-        batch_size: int = 128,
-        target_update: int = 1000,
-        gamma=0.01,
+        policy_kwargs: dict = {"net_arch": [(64, 64)]},
+        buffer_size: int = 50_000,
+        batch_size: int = 256,
+        target_update: int = 5000,
+        gamma=0.99,
     ):
         super().__init__(
             env,
@@ -434,9 +438,11 @@ class DDQNPER(DDQN):
         checkpoint_freq: int = 25_000,
         checkpoint_path=None,
         resume_steps: int = None,
+        log=True,
         log_dir=None,
     ):
-        writer = SummaryWriter(log_dir)
+        if log:
+            writer = SummaryWriter(log_dir)
 
         self.toggle_train(total_steps)
         training_done = False
@@ -484,7 +490,7 @@ class DDQNPER(DDQN):
                     priorities = loss + self.REPLAY_CONSTANT
                     self.replay_memory.update_priorities(
                         indices,
-                        priorities.data.detach().squeeze().cpu().numpy().tolist(),
+                        priorities.data.detach().squeeze().abs().cpu().numpy().tolist(),
                     )
 
                     # Back propagation
@@ -502,10 +508,11 @@ class DDQNPER(DDQN):
 
                 self.decrement_epsilon()
                 self.increment_beta()
-                writer.add_scalar("hyperparams/beta", self.BETA, self.num_timesteps)
-                writer.add_scalar(
-                    "hyperparams/epsilon", self.EPSILON, self.num_timesteps
-                )
+                if log:
+                    writer.add_scalar("hyperparams/beta", self.BETA, self.num_timesteps)
+                    writer.add_scalar(
+                        "hyperparams/epsilon", self.EPSILON, self.num_timesteps
+                    )
 
                 state = next_state
 
@@ -517,30 +524,32 @@ class DDQNPER(DDQN):
             episode_steps.append(episode_step)
             self.num_episodes += 1
             if self.num_episodes % self.LOG_INTERVAL == 0:
-                writer.add_scalar(
-                    "rollout/ep_rew_mean",
-                    sum(episode_rewards) / self.LOG_INTERVAL,
-                    self.num_timesteps,
-                )
-                writer.add_scalar(
-                    "rollout/ep_len_mean",
-                    sum(episode_steps) / self.LOG_INTERVAL,
-                    self.num_timesteps,
-                )
+                if log:
+                    writer.add_scalar(
+                        "rollout/ep_rew_mean",
+                        sum(episode_rewards) / self.LOG_INTERVAL,
+                        self.num_timesteps,
+                    )
+                    writer.add_scalar(
+                        "rollout/ep_len_mean",
+                        sum(episode_steps) / self.LOG_INTERVAL,
+                        self.num_timesteps,
+                    )
 
         self.env.close()
-        writer.close()
+        if log:
+            writer.close()
 
     def increment_beta(self):
         """Increment the beta exponent."""
-        self.BETA = min(self.BETA + self.BETA_INCREMENT_CONSTANT, 1)
+        self.BETA = min(self.BETA + self.BETA_INCREMENT, 1)
 
     def toggle_train(
         self,
         train_steps: int,
         min_epsilon: float = 0.01,
         max_epsilon: float = 1,
-        max_beta: float = 0.4,
+        max_beta: float = 1.0,
     ):
         """Setting all of the training params.
 
@@ -551,5 +560,9 @@ class DDQNPER(DDQN):
 
         # PER
         self.REPLAY_CONSTANT = 1e-5
+        self.MIN_BETA = 0.4
         self.MAX_BETA = max_beta
-        self.BETA_INCREMENT_CONSTANT = self.MAX_BETA / (0.75 * self.train_steps)
+        # Reach 1 after 75% of training
+        self.BETA_INCREMENT = (self.MAX_BETA - self.MIN_BETA) / (
+            0.75 * self.train_steps
+        )

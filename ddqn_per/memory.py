@@ -1,5 +1,7 @@
 """
 memory.py - Module to hold Experience Replay-related functionality.
+
+Heavily based on https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
 """
 import random
 from collections import namedtuple
@@ -27,8 +29,10 @@ class ExperienceReplay:
         # Data Store
         self.capacity = capacity
         self.buffer = []
+        self.current_index = 0
 
-        # State variables
+    def clear(self):
+        self.buffer = []
         self.current_index = 0
 
     def store(self, transition: Transition):
@@ -80,15 +84,21 @@ class PrioritisedER(ExperienceReplay):
         self.alpha = prob_alpha
 
         # Data Store
-        helper_buffer_size = (
-            1  # Get power of 2 closest to (but higher than) the buffer size.
-        )
-        while helper_buffer_size < capacity:
+        helper_buffer_size = 1
+        while (
+            helper_buffer_size < capacity
+        ):  # Get power of 2 closest to (but higher than) the buffer size.
             helper_buffer_size *= 2
         self.sum_helper_buffer = SumSegmentTree(helper_buffer_size)
         self.weight_helper_buffer = MinSegmentTree(helper_buffer_size)
 
         # State variables
+        self.max_priority = 1.0
+
+    def clear(self):
+        super().clear()
+        self.sum_helper_buffer.clear()
+        self.weight_helper_buffer.clear()
         self.max_priority = 1.0
 
     def store(self, transition: Transition):
@@ -98,12 +108,23 @@ class PrioritisedER(ExperienceReplay):
             transition (Transition): the Transition to save.
         """
         super().store(transition)
-        index = self.current_index - 1 if self.current_index > 0 else self.capacity - 1
+        # index = self.current_index - 1 if self.current_index > 0 else self.capacity - 1
+        index = self.current_index
 
         # Store to helper buffers
         priority = self.max_priority**self.alpha
         self.sum_helper_buffer[index] = priority
         self.weight_helper_buffer[index] = priority
+
+    def _sample_proportional(self, batch_size: int):
+        batch = []
+        p_total = self.sum_helper_buffer.sum(0, len(self.buffer) - 1)
+        every_range_len = p_total / batch_size
+        for i in range(batch_size):
+            mass = random.random() * every_range_len + i * every_range_len
+            index = self.sum_helper_buffer.find_prefixsum_index(mass)
+            batch.append(index)
+        return batch
 
     def sample(
         self, batch_size: int, beta=0.4
@@ -121,6 +142,7 @@ class PrioritisedER(ExperienceReplay):
             indices (List[int]): the indices of the transitions sampled.
             weights (List[float]): the weights associated with the transitions
         """
+        assert beta > 0
         N = len(self.buffer)
 
         # Probability calculation
@@ -128,13 +150,13 @@ class PrioritisedER(ExperienceReplay):
         probabilities = np.array(self.sum_helper_buffer.get_values(N)) / priority_sum
 
         # Proprotionally sample the buffer based on the probabilities
-        indices = np.random.choice(N, batch_size, p=probabilities)
+        indices = self._sample_proportional(batch_size)
         samples = [self.buffer[index] for index in indices]
 
         # Weight calculation
         min_probability = self.weight_helper_buffer.min() / priority_sum
         max_weight = (N * min_probability) ** (-beta)
-        weights = (N * probabilities[indices]) ** (-beta) / max_weight
+        weights = ((N * probabilities[indices]) ** (-beta)) / max_weight
         weights = np.array(
             weights, dtype=np.float32
         )  # Convert to float32 from float64, apparently.
@@ -148,8 +170,15 @@ class PrioritisedER(ExperienceReplay):
             indices (List[int]): the indices of the experiences to update priorities for.
             priorities (List[float]): the new priorities for the experiences.
         """
+        assert len(indices) == len(priorities)
+
         for i, priority in zip(indices, priorities):
+            assert priority > 0
+            assert 0 <= i < len(self.buffer)
+
             priority_a = priority**self.alpha
+
             self.sum_helper_buffer[i] = priority_a
             self.weight_helper_buffer[i] = priority_a
+
             self.max_priority = max(self.max_priority, priority)
