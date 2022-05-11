@@ -1,6 +1,7 @@
 import argparse
 import pickle
 import random
+import time
 from pathlib import Path
 
 import gym
@@ -34,7 +35,9 @@ parser.add_argument(
 parser.add_argument(
     "--eval-only", action="store_true", default=False, help="evaluate only"
 )
-parser.add_argument("--run-name", type="str", default="1", help="Run name.")
+parser.add_argument(
+    "--exp-name", type=str, default="ddqn", metavar="E", help="the experiment name."
+)
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 DEVICE = torch.device("cuda" if use_cuda else "cpu")
@@ -54,7 +57,7 @@ env = gym.make("CartPole-v1")
 TOP_LEVEL_LOG_DIR = Path("logs")
 TOP_LEVEL_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-RUN_NAME = f"{model_name}_{args.env_name}"
+RUN_NAME = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
 
 # Checkpoints
 checkpoint_path = Path(args.checkpoint_dir) / RUN_NAME
@@ -87,8 +90,7 @@ if not args.eval_only:
         checkpoint_freq=10_000,
         checkpoint_path=checkpoint_path,
         resume_steps=resume_steps,
-        log_dir=TOP_LEVEL_LOG_DIR
-        / RUN_NAME
-        / f"run_{total_time_steps}_{args.run_name}",
+        log_dir=TOP_LEVEL_LOG_DIR,
+        log_name=RUN_NAME,
         log=True,
     )

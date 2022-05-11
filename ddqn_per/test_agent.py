@@ -15,7 +15,6 @@ class TestAgent:
 
     def test_init(self):
         assert self.a.EPSILON == 1
-        assert self.a.num_episodes == 0
         assert self.a.num_timesteps == 0
         assert self.a.gamma == pytest.approx(0.99)
         assert self.a.output_size == self.env.action_space.n
@@ -71,8 +70,9 @@ class TestPERAgent(TestAgent):
 
         # Minibatch
         minibatch = self.a._fetch_minibatch()
-        batch_zip = list(zip(*minibatch))
-        states, actions, rewards, next_states, dones, indices, weights = minibatch
+        states, actions, rewards, next_states, dones = minibatch["experiences"]
+        batch_zip = list(zip(*minibatch["experiences"]))
+        indices, weights = minibatch["per_data"]
         assert len(batch_zip) == self.batch_size
         assert states[0].size()[0] == self.a.input_size
         assert next_states[0].size()[0] == self.a.input_size
