@@ -29,15 +29,15 @@ class DDQN:
         device: torch.device = "cpu",
         input_size: int = None,
         output_size: int = None,
-        policy_kwargs: dict = {"net_arch": [(120, 84)]},
+        policy_kwargs: dict = {"net_arch": [(64, 64)]},
         buffer_size: int = 1_000_000,
-        batch_size: int = 256,
-        target_update: int = 1_000,
+        batch_size: int = 32,
+        target_update: int = 10_000,
         gamma=0.99,
         max_epsilon: float = 1.0,
         min_epsilon: float = 0.05,
-        exploration_fraction: float = 0.5,
-        learning_rate: float = 0.01,
+        exploration_fraction: float = 0.1,
+        learning_rate: float = 0.0001,
         max_grad_norm: float = 10.0,
     ):
         self.device = device
@@ -285,8 +285,8 @@ class DDQN:
     def learn(
         self,
         total_steps,
-        learning_starts: int = 10_000,
-        train_frequency: int = 4,
+        learning_starts: int = 50_000,
+        train_frequency: int = 1,
         checkpoint_freq: int = 25_000,
         checkpoint_path: str = None,
         resume_steps: int = None,
@@ -306,7 +306,7 @@ class DDQN:
             config = self._get_config()
             config["train_frequency"] = train_frequency
             config["learning_starts"] = learning_starts
-            wandb.init(
+            run = wandb.init(
                 project=wandb_params["project"],
                 entity=wandb_params["entity"],
                 sync_tensorboard=True,
@@ -378,7 +378,7 @@ class DDQN:
         self.env.close()
         if log:
             self.writer.close()
-            wandb.finish()
+            run.finish()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
@@ -392,9 +392,7 @@ class DDQN:
         self.controller.train()
         self.train_steps = train_steps
 
-        self.optimizer = optim.RMSprop(
-            self.controller.parameters(), lr=self.learning_rate
-        )
+        self.optimizer = optim.Adam(self.controller.parameters(), lr=self.learning_rate)
 
         # Explore-exploit
         self.EPSILON_DECREMENT = (self.MAX_EPSILON - self.MIN_EPSILON) / (

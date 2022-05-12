@@ -80,14 +80,13 @@ if args.resume_training:
 
     resume_steps = total_time_steps - model.num_timesteps
 else:
-    model = DDQNPER(env, DEVICE, exploration_fraction=0.2)
+    model = DDQNPER(env, DEVICE)
     resume_steps = 0
 
 if not args.eval_only:
     print(f"Training for {total_time_steps - resume_steps} time steps...")
     model.learn(
         total_time_steps,
-        train_frequency=1,
         checkpoint_freq=10_000,
         checkpoint_path=checkpoint_path,
         resume_steps=resume_steps,
