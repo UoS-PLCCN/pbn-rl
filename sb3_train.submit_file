@@ -1,0 +1,55 @@
+#---------------------------------------------
+# Name your batch so it's easy to distinguish in the q.
+JobBatchName = "PBN RL PPO"
+
+# ---------------------------------------------------
+# Universe (vanilla, docker)
+universe     = docker
+docker_image = registry.eps.surrey.ac.uk/pbn-rl
+
+# -------------------------------------------------
+# Event, out and error logs
+log    = logs/$(exp).$(steps).$(seed).log
+output = outs/$(exp).$(steps).$(seed).log
+error  = logs/error/$(exp).$(steps).$(seed).log
+
+# -----------------------------------
+# File Transfer, Input, Output
+# should_transfer_files = YES
+
+environment = "mount=$ENV(PWD) WANDB_API_KEY=$ENV(WANDB_API_KEY)"
+requirements = (CUDAGlobalMemoryMb > 3000) && \
+               (HasStornext) && \
+			   (CUDACapability > 7.0)
+
+
+# --------------------------------------
+# Resources
+request_CPUs   = 1
+request_memory = 3G
+request_GPUs   = 1
++GPUMem        = 4000
+
+
+#This job will complete in less than 1 hour
++JobRunTime = 1
+
+#This job can checkpoint
++CanCheckpoint = true
+
+
+# --------------------------------------------
+# Executable
+executable    = /opt/conda/bin/python
+
+# -----------------------------------
+# Queue commands. We can use variables and flags to launch our command with multiple options (as you would from the command line)
+arguments = $(script) --seed $(seed) --time-steps $(steps) --env-name cartpole --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs
+
+script = $ENV(PWD)/train_sb3.py
+seed = 42
+steps = 100000
+exp = ppo-condor
+
+# Make the checkpoint location depend on the variables we use to run the model
+queue 1

@@ -11,8 +11,8 @@ from wandb.integration.sb3 import WandbCallback
 
 import wandb
 
-model_cls = DQN
-model_name = "DQN"
+model_cls = PPO
+model_name = "PPO"
 
 # Parse settings
 parser = argparse.ArgumentParser(description="Train an RL model for target control.")
@@ -27,6 +27,7 @@ parser.add_argument("--env-name", type=str, help="the name of the environment")
 parser.add_argument(
     "--resume-training",
     action="store_true",
+    default=True,
     help="resume training from latest checkpoint.",
 )
 parser.add_argument("--checkpoint-dir", default="models", help="path to save models")
@@ -38,6 +39,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "--exp-name", type=str, default="sb3", metavar="E", help="the experiment name."
+)
+parser.add_argument(
+    "--log-dir", type=str, default="logs", metavar="l", help="the logging directory."
 )
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -55,7 +59,7 @@ random.seed(args.seed)
 env = gym.make("CartPole-v1")
 
 # set up logs
-TOP_LEVEL_LOG_DIR = Path("logs")
+TOP_LEVEL_LOG_DIR = Path(args.log_dir)
 TOP_LEVEL_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 RUN_NAME = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
@@ -67,8 +71,11 @@ Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 def get_latest_checkpoint():
     model_checkpoints = Path(args.checkpoint_dir) / RUN_NAME
 
-    files = model_checkpoints.glob("*.zip")
-    return max(files, key=lambda x: x.stat().st_ctime)
+    files = list(model_checkpoints.glob("*.zip"))
+    if len(files) > 0:
+        return max(files, key=lambda x: x.stat().st_ctime)
+    else:
+        return None
 
 
 # Model
@@ -84,10 +91,11 @@ model = model_cls(
 
 if args.resume_training:
     model_path = get_latest_checkpoint()
-    model = model_cls.load(model_path, env, device=DEVICE, verbose=1)
+    if model_path:
+        model = model_cls.load(model_path, env, device=DEVICE, verbose=1)
 
-    total_time_steps = args.time_steps
-    time_steps = total_time_steps - model.num_timesteps
+        total_time_steps = args.time_steps
+        time_steps = total_time_steps - model.num_timesteps
 
 config = {
     "train_steps": total_time_steps,

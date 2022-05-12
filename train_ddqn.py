@@ -74,14 +74,15 @@ def get_latest_checkpoint():
 # Model
 total_time_steps = args.time_steps
 resume_steps = None
+model = DDQNPER(env, DEVICE)
+resume_steps = 0
 if args.resume_training:
     model_path = get_latest_checkpoint()
-    model = model_cls.load(model_path, env, device=DEVICE)
+    
+    if model_path:
+        model = model_cls.load(model_path, env, device=DEVICE)
+        resume_steps = total_time_steps - model.num_timesteps
 
-    resume_steps = total_time_steps - model.num_timesteps
-else:
-    model = DDQNPER(env, DEVICE)
-    resume_steps = 0
 
 if not args.eval_only:
     print(f"Training for {total_time_steps - resume_steps} time steps...")
