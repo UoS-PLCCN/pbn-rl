@@ -136,3 +136,4 @@ logs/
 images/
 models/
 wandb/
+outs/
