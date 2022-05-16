@@ -243,7 +243,7 @@ class DDQN:
         self.optimizer.step()
 
         if self.log:
-            self.wandb.log({"loss": loss})
+            self.wandb.log({"loss": loss, "global_step": self.num_timesteps})
 
     def _log_params(self):
         self.writer.add_scalar("rollout/epsilon", self.EPSILON, self.num_timesteps)

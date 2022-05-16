@@ -1,7 +1,8 @@
 import argparse
 import random
 import numpy as np
-import pickle
+import gym
+import gym_PBN
 from eval import compute_ssd_hist
 
 # Parse settings
@@ -32,8 +33,7 @@ random.seed(args.seed)
 np.random.seed(args.seed)
 
 # Load env
-with open(args.env, "rb") as f:
-    env = pickle.load(f)
+env = gym.make(args.env)
 
 results = np.zeros((args.runs, 2 ** len(env.target_nodes)))
 for i in range(args.runs):

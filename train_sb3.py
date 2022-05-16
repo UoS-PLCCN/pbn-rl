@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import gym
+import gym_PBN
 import numpy as np
 import torch
 from stable_baselines3 import DQN, PPO
@@ -22,8 +23,7 @@ parser.add_argument(
 parser.add_argument(
     "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)."
 )
-parser.add_argument("--env", type=str, help="the environment file to run.")
-parser.add_argument("--env-name", type=str, help="the name of the environment")
+parser.add_argument("--env", type=str, help="the environment name to run.")
 parser.add_argument(
     "--resume-training",
     action="store_true",
@@ -54,15 +54,13 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 
 # Load env
-# with open(args.env, "rb") as f:
-#     env = pickle.load(f)
-env = gym.make("CartPole-v1")
+env = gym.make(args.env)
 
 # set up logs
 TOP_LEVEL_LOG_DIR = Path(args.log_dir)
 TOP_LEVEL_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-RUN_NAME = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
+RUN_NAME = f"{args.env.split('/')[1]}_{args.exp_name}_{args.seed}_{int(time.time())}"
 
 # Checkpoints
 Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)

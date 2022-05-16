@@ -11,4 +11,4 @@ wandb
 imageio
 # PBN
 gym
-git+https://github.com/UoS-PLCCN/gym-PBN@0cd4b9b5
+git+https://github.com/UoS-PLCCN/gym-PBN@669e0cd

@@ -9,9 +9,9 @@ docker_image = registry.eps.surrey.ac.uk/pbn-rl
 
 # -------------------------------------------------
 # Event, out and error logs
-log    = logs/r$(resets).i$(iters).log
-output = outs/r$(resets).i$(iters).out
-error  = logs/error/r$(resets).i$(iters).error
+log    = logs/$(env_name).r$(resets).i$(iters).log
+output = outs/$(env_name).r$(resets).i$(iters).out
+error  = logs/error/$(env_name).r$(resets).i$(iters).error
 
 # -----------------------------------
 # File Transfer, Input, Output
@@ -42,7 +42,8 @@ executable    = /usr/local/bin/python3
 arguments = $(script) --resets $(resets) --iters $(iters) --bit-flip-prob $(bit_flip_prob) --env $(env)
 
 script = $ENV(PWD)/ssd_param_optim.py
-env = $ENV(PWD)/envs/n_28.pkl
+env_name = Bittner-70-v0
+env = gym-PBN/$(env_name)
 bit_flip_prob = 0.01
 
 # Make the checkpoint location depend on the variables we use to run the model

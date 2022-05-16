@@ -21,8 +21,7 @@ parser.add_argument(
 parser.add_argument(
     "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)."
 )
-parser.add_argument("--env", type=str, help="the environment file to run.")
-parser.add_argument("--env-name", type=str, help="the name of the environment")
+parser.add_argument("--env", type=str, help="the environment to run.")
 parser.add_argument(
     "--resume-training",
     action="store_true",
@@ -49,15 +48,13 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 
 # Load env
-# with open(args.env, "rb") as f:
-#     env = pickle.load(f)
-env = gym.make("CartPole-v1")
+env = gym.make(args.env)
 
 # set up logs
 TOP_LEVEL_LOG_DIR = Path("logs")
 TOP_LEVEL_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-RUN_NAME = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
+RUN_NAME = f"{args.env.split('/')[1]}_{args.exp_name}_{args.seed}_{int(time.time())}"
 
 # Checkpoints
 checkpoint_path = Path(args.checkpoint_dir) / RUN_NAME
@@ -78,7 +75,7 @@ model = DDQNPER(env, DEVICE)
 resume_steps = 0
 if args.resume_training:
     model_path = get_latest_checkpoint()
-    
+
     if model_path:
         model = model_cls.load(model_path, env, device=DEVICE)
         resume_steps = total_time_steps - model.num_timesteps
