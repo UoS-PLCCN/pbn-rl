@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 
 import gym
-from gym.wrappers import RecordEpisodeStatistics
 import gym_PBN
 import numpy as np
 import torch
@@ -12,6 +11,7 @@ from stable_baselines3 import DQN, PPO
 from wandb.integration.sb3 import WandbCallback
 
 import wandb
+from eval import compute_ssd_hist
 
 model_cls = PPO
 model_name = "PPO"
@@ -56,7 +56,6 @@ random.seed(args.seed)
 
 # Load env
 env = gym.make(args.env)
-env = RecordEpisodeStatistics(env)
 
 # set up logs
 TOP_LEVEL_LOG_DIR = Path(args.log_dir)
@@ -132,5 +131,7 @@ if not args.eval_only:
         ),
         reset_num_timesteps=not args.resume_training,
     )
+
+compute_ssd_hist(env, model, f"images/{RUN_NAME}.png", resets=300, iters=100_000)
 
 run.finish()

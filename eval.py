@@ -1,13 +1,13 @@
 import itertools
 from pathlib import Path
-from typing import Union, Iterable
+from typing import Iterable, Union
 
 import gym
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from tqdm import tqdm
 from gym_PBN.envs.pbn_target import PBNTargetEnv
+from tqdm import tqdm
 
 
 def _bit_seq_to_str(seq: Iterable[int]) -> str:
@@ -70,7 +70,9 @@ def compute_ssd_hist(
                         env.graph.flipNode(j)
                 env.step(action=0)
             else:
-                action, _ = model.predict(state, deterministic=True)
+                action = model.predict(state, deterministic=True)
+                if type(action) == tuple:
+                    action = action[0]
                 env.step(action=action)
 
         ssd[:, i] = sub_ssd
@@ -135,7 +137,7 @@ def visualize_ssd(ssd_frame: pd.DataFrame, output: Union[str, Path], env_name: s
     fig = px.bar(
         ssd_frame,
         x=ssd_frame.index,
-        y="Values",
+        y="Value",
         labels={
             "states": "Gene Premutations",
             "ssd_values": "Steady State Distribution",

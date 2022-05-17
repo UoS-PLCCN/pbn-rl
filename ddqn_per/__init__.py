@@ -56,7 +56,7 @@ class DDQN:
         self.output_size = output_size if output_size else env.action_space.n
 
         # Get episode stats
-        self.env = gym.wrappers.RecordEpisodeStatistics(env)
+        self.env = gym.wrappers.RecordEpisodeStatistics(env, deque_size=25)
 
         # Networks
         self.policy_kwargs = policy_kwargs
@@ -334,10 +334,11 @@ class DDQN:
             if "episode" in info.keys() and log:
                 episodes += 1
                 if episodes % self.env.return_queue.maxlen == 0:
+                    _len = self.env.return_queue.maxlen
                     ep_rew_mean = mean(self.env.return_queue)
                     ep_len_mean = mean(self.env.length_queue)
                     print(
-                        f"Episode {episodes}: rew_100 - {ep_rew_mean}, len_100 - {ep_len_mean}"
+                        f"Episode {episodes}: rew_{_len} - {ep_rew_mean}, len_{_len} - {ep_len_mean}"
                     )
                     self.writer.add_scalar(
                         "rollout/ep_rew_mean",
