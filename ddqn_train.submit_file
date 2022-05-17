@@ -1,6 +1,6 @@
 #---------------------------------------------
 # Name your batch so it's easy to distinguish in the q.
-JobBatchName = "PBN RL PPO"
+JobBatchName = "PBN RL DDQN"
 
 # ---------------------------------------------------
 # Universe (vanilla, docker)
@@ -44,12 +44,13 @@ executable    = /opt/conda/bin/python
 
 # -----------------------------------
 # Queue commands. We can use variables and flags to launch our command with multiple options (as you would from the command line)
-arguments = $(script) --seed $(seed) --time-steps $(steps) --env-name cartpole --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs
+arguments = $(script) --seed $(seed) --time-steps $(steps) --env $(env) --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs
 
-script = $ENV(PWD)/train_sb3.py
+script = $ENV(PWD)/train_ddqn.py
 seed = 42
 steps = 100000
-exp = ppo-condor
+env = gym-PBN/Bittner-28-v0
+exp = ddqn-28-default
 
 # Make the checkpoint location depend on the variables we use to run the model
 queue 1

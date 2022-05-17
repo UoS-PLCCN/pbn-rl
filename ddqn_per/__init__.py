@@ -310,6 +310,7 @@ class DDQN:
                 project=wandb_params["project"],
                 entity=wandb_params["entity"],
                 sync_tensorboard=True,
+                monitor_gym=True,
                 config=config,
                 name=log_name,
                 save_code=True,

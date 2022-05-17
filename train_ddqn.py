@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import gym
+from gym.wrappers import RecordEpisodeStatistics
 import numpy as np
 import torch
 
@@ -37,6 +38,7 @@ parser.add_argument(
 parser.add_argument(
     "--exp-name", type=str, default="ddqn", metavar="E", help="the experiment name."
 )
+parser.add_argument("--log-dir", default="logs", help="path to save logs")
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 DEVICE = torch.device("cuda" if use_cuda else "cpu")
@@ -49,9 +51,10 @@ random.seed(args.seed)
 
 # Load env
 env = gym.make(args.env)
+env = RecordEpisodeStatistics(env, deque_size=10)
 
 # set up logs
-TOP_LEVEL_LOG_DIR = Path("logs")
+TOP_LEVEL_LOG_DIR = Path(args.log_dir)
 TOP_LEVEL_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 RUN_NAME = f"{args.env.split('/')[1]}_{args.exp_name}_{args.seed}_{int(time.time())}"
@@ -64,8 +67,11 @@ checkpoint_path.mkdir(parents=True, exist_ok=True)
 def get_latest_checkpoint():
     model_checkpoints = Path(args.checkpoint_dir) / RUN_NAME
 
-    files = model_checkpoints.glob("*.pt")
-    return max(files, key=lambda x: x.stat().st_ctime)
+    files = list(model_checkpoints.glob("*.pt"))
+    if len(files) > 0:
+        return max(files, key=lambda x: x.stat().st_ctime)
+    else:
+        return None
 
 
 # Model

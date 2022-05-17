@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import gym
+from gym.wrappers import RecordEpisodeStatistics
 import gym_PBN
 import numpy as np
 import torch
@@ -55,6 +56,7 @@ random.seed(args.seed)
 
 # Load env
 env = gym.make(args.env)
+env = RecordEpisodeStatistics(env)
 
 # set up logs
 TOP_LEVEL_LOG_DIR = Path(args.log_dir)
