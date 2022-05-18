@@ -26,31 +26,27 @@ requirements = (CUDAGlobalMemoryMb > 3000) && \
 # --------------------------------------
 # Resources
 request_CPUs   = 1
-request_memory = 3G
+request_memory = 5G
 request_GPUs   = 1
 +GPUMem        = 4000
-
-
-#This job will complete in less than 1 hour
-+JobRunTime = 1
 
 #This job can checkpoint
 +CanCheckpoint = true
 
-
-# --------------------------------------------
-# Executable
-executable    = /opt/conda/bin/python
-
 # -----------------------------------
 # Queue commands. We can use variables and flags to launch our command with multiple options (as you would from the command line)
-arguments = $(script) --seed $(seed) --time-steps $(steps) --env $(env) --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs
+arguments = $(script) --seed $(seed) --time-steps $(steps) --env $(env) --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs --learning-starts $(learningstarts) --hyperparams $(hyperparams) --eval-only
 
 script = $ENV(PWD)/train_ddqn.py
 seed = 42
-steps = 100000
+steps = 300000
 env = gym-PBN/Bittner-28-v0
-exp = ddqn-28-default
+exp = ddqn-28-b256
+hyperparams = exploration_fraction=0.25,batch_size=256
+learningstarts = 30000
+
+# Hours the job will take at maximum
++JobRunTime = 3
 
 # Make the checkpoint location depend on the variables we use to run the model
 queue 1

@@ -4,6 +4,7 @@ plotly_express==0.4.1
 kaleido
 # SB3
 stable-baselines3[extras]
+sb3-contrib
 pytest
 pygame
 tensorboard

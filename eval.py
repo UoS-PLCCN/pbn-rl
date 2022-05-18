@@ -17,7 +17,6 @@ def _bit_seq_to_str(seq: Iterable[int]) -> str:
 def compute_ssd_hist(
     env: PBNTargetEnv,
     model: object = None,
-    output: Union[str, Path] = None,
     iters: int = 1_200_000,
     resets: int = 300,
     bit_flip_prob: float = 0.01,
@@ -28,7 +27,6 @@ def compute_ssd_hist(
     Args:
         env (PBNTargetEnv): a gym-PBN environment.
         model (object, optional): a Stable Baselines model or one of a similar interface. Defaults to None.
-        output (str, optional): a path to output a visualization. Defaults to None.
         iters (int, optional): how many environment transitions to compute. Defaults to 1.2 Million.
         resets (int, optional): how many times to reset the environment. `iters` should be divisible by this number. Defaults to 300.
         bit_flip_prob (float, optional): number in [0,1] on the probability of flipping each bit at random when no control is being applied. Defaults to 0.01
@@ -83,11 +81,9 @@ def compute_ssd_hist(
 
     states = list(map(_bit_seq_to_str, itertools.product([0, 1], repeat=g)))
     ret = pd.DataFrame(list(ssd), index=states, columns=["Value"])
+    plot = visualize_ssd(ret, env.name)
 
-    if output is not None:
-        visualize_ssd(ret, output, env.name)
-
-    return ret
+    return ret, plot
 
 
 def eval_increase(
@@ -123,17 +119,14 @@ def eval_increase(
     return (model_ssd - original_ssd)[states_of_interest].sum()
 
 
-def visualize_ssd(ssd_frame: pd.DataFrame, output: Union[str, Path], env_name: str):
+def visualize_ssd(ssd_frame: pd.DataFrame, env_name: str) -> object:
     """Visualize and save the Steady State Distribution histogram.
 
     Args:
         ssd_frame (pd.DataFrame): a DataFrame containing the states of interest and
             their corresponding probability.
-        output (Union[str, Path]): a path to save the visualized figure.
         env_name (str): the name of the environment for metadata's sake.
     """
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
-
     fig = px.bar(
         ssd_frame,
         x=ssd_frame.index,
@@ -144,4 +137,4 @@ def visualize_ssd(ssd_frame: pd.DataFrame, output: Union[str, Path], env_name: s
         },
         title=f"SSD for {env_name}",
     )
-    fig.write_image(output)
+    return fig
