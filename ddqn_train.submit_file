@@ -17,7 +17,7 @@ error  = logs/error/$(exp).$(steps).$(seed).log
 # File Transfer, Input, Output
 # should_transfer_files = YES
 
-environment = "mount=$ENV(PWD) WANDB_API_KEY=$ENV(WANDB_API_KEY)"
+environment = "mount=$ENV(PWD) WANDB_API_KEY=$ENV(WANDB_API_KEY) WANDB_RUN_GROUP=$(group)"
 requirements = (CUDAGlobalMemoryMb > 3000) && \
                (HasStornext) && \
                (CUDACapability > 7.0)
@@ -42,7 +42,8 @@ script = $ENV(PWD)/train_ddqn.py
 env_n = 28
 batch_size = 256
 env = gym-PBN/Bittner-$(env_n)-v0
-exp = ddqn-$(env_n)-b$(batch_size)-$(seed)
+exp = ddqn-$(env_n)-b$(batch_size)
+group = ddqn-$(env_n)
 
 hyperparams = exploration_fraction=0.25,batch_size=$(batch_size)
 steps = 150000
