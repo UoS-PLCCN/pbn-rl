@@ -125,9 +125,7 @@ if not args.eval_only:
     )
 
 print(f"Evaluating...")
-ssd, plot = compute_ssd_hist(
-    env, model, TOP_LEVEL_LOG_DIR / f"{RUN_NAME}.png", resets=300, iters=100_000
-)
+ssd, plot = compute_ssd_hist(env, model, resets=300, iters=100_000, multiprocess=False)
 run.log({"SSD": plot})
 
 run.finish()
