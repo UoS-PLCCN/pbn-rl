@@ -9,7 +9,8 @@ import numpy as np
 import torch
 import wandb
 from gym_PBN.utils.eval import compute_ssd_hist
-from sb3_contrib import TRPO
+
+# from sb3_contrib import TRPO
 from stable_baselines3 import DQN, PPO, SAC
 from wandb.integration.sb3 import WandbCallback
 
