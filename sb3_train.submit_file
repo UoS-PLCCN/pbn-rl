@@ -5,7 +5,7 @@ JobBatchName = "PBN RL PPO"
 # ---------------------------------------------------
 # Universe (vanilla, docker)
 universe     = docker
-docker_image = registry.eps.surrey.ac.uk/pbn-rl:5de8f29d
+docker_image = registry.eps.surrey.ac.uk/pbn-rl:7df9a6d8
 
 # -------------------------------------------------
 # Event, out and error logs
@@ -35,13 +35,14 @@ request_GPUs   = 1
 arguments = $(script) --seed $(seed) --time-steps $(steps) --env $(env) --exp-name $(exp) --resume-training --checkpoint-dir $ENV(PWD)/models --log-dir $ENV(PWD)/logs 
 
 script = $ENV(PWD)/train_sb3.py
-seed = 42
 steps = 150000
-exp = ppo-default
-env = gym-PBN/Bittner-28-v0
+
+env_n = 28
+env = gym-PBN/Bittner-$(env_n)-v0
+exp = ppo-default-$(env_n)-$(seed)
 
 +CanCheckpoint = true
 +JobRunTime = 1
 
 # Make the checkpoint location depend on the variables we use to run the model
-queue 1
+queue 1 seed in 42 727 420 69 1337

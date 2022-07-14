@@ -1,9 +1,10 @@
 import argparse
 import random
-import numpy as np
+
 import gym
 import gym_PBN
-from eval import compute_ssd_hist
+import numpy as np
+from gym_PBN.utils.eval import compute_ssd_hist
 
 # Parse settings
 parser = argparse.ArgumentParser(description="Evaluate SSD computation parameters.")

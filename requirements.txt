@@ -1,7 +1,3 @@
-# Pretty output
-tqdm
-plotly_express==0.4.1
-kaleido
 # SB3
 stable-baselines3[extras]
 sb3-contrib
@@ -12,4 +8,4 @@ wandb
 imageio
 # PBN
 gym
-git+https://github.com/UoS-PLCCN/gym-PBN@b5d22cf
+gym-PBN[vis] @ git+https://github.com/UoS-PLCCN/gym-PBN@7a5d366

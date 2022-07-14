@@ -1,21 +1,19 @@
 #!/usr/bin/env python
 import argparse
 import random
-import time
 from pathlib import Path
 
 import gym
 import gym_PBN
 import numpy as np
 import torch
-from stable_baselines3 import DQN, PPO, SAC
+import wandb
+from gym_PBN.utils.eval import compute_ssd_hist
 from sb3_contrib import TRPO
+from stable_baselines3 import DQN, PPO, SAC
 from wandb.integration.sb3 import WandbCallback
 
-import wandb
-from eval import compute_ssd_hist
-
-model_cls = PPO 
+model_cls = PPO
 model_name = "PPO"
 
 # Parse settings

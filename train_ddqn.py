@@ -1,15 +1,14 @@
 import argparse
-import pickle
 import random
-import time
 from pathlib import Path
 
 import gym
+import gym_PBN
 import numpy as np
 import torch
+from gym_PBN.utils.eval import compute_ssd_hist
 
 from ddqn_per import DDQNPER
-from eval import compute_ssd_hist
 
 model_cls = DDQNPER
 model_name = "DDQNPER"
