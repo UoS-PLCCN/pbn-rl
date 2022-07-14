@@ -6,6 +6,7 @@ import gym
 import gym_PBN
 import numpy as np
 import torch
+import wandb
 from gym_PBN.utils.eval import compute_ssd_hist
 
 from ddqn_per import DDQNPER
@@ -87,6 +88,19 @@ if args.hyperparams:
     }
 model = DDQNPER(env, DEVICE, **hyperparams)
 resume_steps = 0
+
+config = model.get_config()
+config["learning_starts"] = args.learning_starts
+run = wandb.init(
+    project="pbn-rl",
+    entity="uos-plccn",
+    sync_tensorboard=True,
+    monitor_gym=True,
+    config=config,
+    name=RUN_NAME,
+    save_code=True,
+)
+
 if args.resume_training:
     model_path = get_latest_checkpoint()
 
@@ -107,9 +121,13 @@ if not args.eval_only:
         log_dir=TOP_LEVEL_LOG_DIR,
         log_name=RUN_NAME,
         log=True,
+        run=run,
     )
 
-
-compute_ssd_hist(
+print(f"Evaluating...")
+ssd, plot = compute_ssd_hist(
     env, model, TOP_LEVEL_LOG_DIR / f"{RUN_NAME}.png", resets=300, iters=100_000
 )
+run.log({"SSD": plot})
+
+run.finish()

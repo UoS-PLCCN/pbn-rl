@@ -132,6 +132,7 @@ if not args.eval_only:
         reset_num_timesteps=not args.resume_training,
     )
 
+print(f"Evaluating...")
 ssd, plot = compute_ssd_hist(env, model, resets=300, iters=100_000)
 run.log({"SSD": plot})
 

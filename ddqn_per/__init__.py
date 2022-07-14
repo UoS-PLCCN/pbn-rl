@@ -265,7 +265,7 @@ class DDQN:
         if (step + 1) % checkpoint_freq == 0 and checkpoint_path:
             self.save(checkpoint_path)
 
-    def _get_config(self):
+    def get_config(self):
         return {
             "gamma": self.gamma,
             "policy": self.policy_kwargs,
@@ -291,9 +291,9 @@ class DDQN:
         checkpoint_path: str = None,
         resume_steps: int = None,
         log: bool = True,
-        log_name: str = "ddqn",
+        run=None,
         log_dir=None,
-        wandb_params={"project": "pbn-rl", "entity": "uos-plccn"},
+        log_name="ddqn",
     ):
         self.toggle_train(total_steps)
         if resume_steps:
@@ -301,26 +301,13 @@ class DDQN:
 
         if log:
             self.log = True
-            import wandb
 
-            config = self._get_config()
-            config["train_frequency"] = train_frequency
-            config["learning_starts"] = learning_starts
-            run = wandb.init(
-                project=wandb_params["project"],
-                entity=wandb_params["entity"],
-                sync_tensorboard=True,
-                monitor_gym=True,
-                config=config,
-                name=log_name,
-                save_code=True,
-            )
-            wandb.watch(self.controller, log="all", log_freq=self.LOG_INTERVAL)
+            run.watch(self.controller, log="all", log_freq=self.LOG_INTERVAL)
             self.writer = SummaryWriter(Path(log_dir) / log_name)
-            self.wandb = wandb
+            self.wandb = run
             hyperparam_print = "\n".join(
                 ["|param|value|", "|-|-|"]
-                + [f"|{key}|{value}" for key, value in config.items()]
+                + [f"|{key}|{value}" for key, value in self.get_config().items()]
             )
             self.writer.add_text("hyperparameters", hyperparam_print)
 
@@ -475,8 +462,8 @@ class DDQNPER(DDQN):
             "per_data": (indices, weights),
         }
 
-    def _get_config(self):
-        config = super()._get_config()
+    def get_config(self):
+        config = super().get_config()
         config["max_beta"] = self.MAX_BETA
         config["min_beta"] = self.MIN_BETA
         config["beta_fraction"] = self.beta_fraction
