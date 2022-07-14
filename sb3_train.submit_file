@@ -5,7 +5,7 @@ JobBatchName = "PBN RL PPO"
 # ---------------------------------------------------
 # Universe (vanilla, docker)
 universe     = docker
-docker_image = registry.eps.surrey.ac.uk/pbn-rl:7df9a6d8
+docker_image = registry.eps.surrey.ac.uk/pbn-rl:05724e66
 
 # -------------------------------------------------
 # Event, out and error logs

@@ -8,4 +8,4 @@ wandb
 imageio
 # PBN
 gym
-gym-PBN[vis] @ git+https://github.com/UoS-PLCCN/gym-PBN@7a5d366
+gym-PBN[vis] @ git+https://github.com/UoS-PLCCN/gym-PBN@a9aba77
