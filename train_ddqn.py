@@ -6,9 +6,9 @@ import gym
 import gym_PBN
 import numpy as np
 import torch
-import wandb
 from gym_PBN.utils.eval import compute_ssd_hist
 
+import wandb
 from ddqn_per import DDQNPER
 
 model_cls = DDQNPER
@@ -128,4 +128,5 @@ print(f"Evaluating...")
 ssd, plot = compute_ssd_hist(env, model, resets=300, iters=100_000, multiprocess=False)
 run.log({"SSD": plot})
 
+env.close()
 run.finish()

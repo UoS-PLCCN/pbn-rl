@@ -279,7 +279,6 @@ class DDQN:
             "min_epsilon": self.MIN_EPSILON,
             "exploration_fraction": self.exploration_fraction,
             "max_grad_norm": self.max_grad_norm,
-            "train_steps": self.train_steps,
         }
 
     def learn(
@@ -364,10 +363,9 @@ class DDQN:
                 state = self.env.reset()
 
         # Cleanup
-        self.env.close()
         if log:
+            self.wandb.unwatch(self.controller)
             self.writer.close()
-            run.finish()
 
     def decrement_epsilon(self):
         """Decrement the exploration rate."""
