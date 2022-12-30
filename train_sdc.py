@@ -5,6 +5,7 @@ import gym_PBN
 import gymnasium as gym
 import numpy as np
 import torch
+from gym_PBN.utils.eval import eval_winrate
 
 from ddqn_per import DDQNPER
 
@@ -48,10 +49,10 @@ env = gym.make(
     ),
     goal_config={
         "all_attractors": [{(0, 1, 1, 1, 1, 0, 1, 1, 1)}],
-        "target": [{(0, 1, 1, 1, 1, 0, 1, 1, 1)}],
+        "target": {(0, 1, 1, 1, 1, 0, 1, 1, 1)},
     },
     reward_config={
-        "successful_reward": 5,
+        "successful_reward": 10,
         "wrong_attractor_cost": 2,
         "action_cost": 1,
     },
@@ -61,15 +62,16 @@ env = gym.make(
 )
 
 # Model
-# NOTE Look in the DDQN code for HACK notes that make the combinatorial action space work.
 hyperparams = {  # From the paper
     "gamma": 0.99,
+    "exploration_fraction": 0.9,
     "min_epsilon": 0.01,
     "beta": 0.4,
     "max_beta": 1,
     "policy_kwargs": {"net_arch": [(50, 50, 50)]},
     "output_size": env.discrete_action_space.n,
 }
+# NOTE Look in the DDQN code for HACK notes that make the combinatorial action space work.
 model = DDQNPER(env, DEVICE, **hyperparams)
 
 # Logs & Checkpoints
@@ -79,8 +81,18 @@ RUN_NAME = f"{env.name}_{EXP_NAME}_{SEED}"
 checkpoint_path = Path("models") / RUN_NAME
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 
+
+def get_latest_checkpoint():
+    files = list(checkpoint_path.glob("*.pt"))
+    if len(files) > 0:
+        return max(files, key=lambda x: x.stat().st_ctime)
+    else:
+        return None
+
+
 # Train
-# NOTE This was episodes in the paper. 250k episodes was a legacy thing I just didn't bother playing with at the time, in later work it turned out it was way too much, and also training with a target of # timesteps not # episodes is better practice.w.
+# NOTE This was episodes in the paper. 250k episodes was a legacy thing I just didn't bother playing with at the time, in later work it turned out it was way too much, and also training with a target of # timesteps not # episodes is better practice.
+# For this control scheme however, you might want to try an actually large number like 2 million time steps if you find that 250k is not enough.
 total_time_steps = 250_000
 
 print(f"Training for {total_time_steps} time steps...")
@@ -94,5 +106,11 @@ model.learn(
     log_dir=TOP_LEVEL_LOG_DIR,
     log_name=RUN_NAME,
 )
+
+# Evaluation
+winrate, avg_interventions, avg_timesteps = eval_winrate(env, model)
+print(f"Winrate achieved: {winrate*100:.2f}%")
+print("Average interventions: ", avg_interventions)
+print("Average timesteps: ", avg_timesteps)
 
 env.close()

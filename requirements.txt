@@ -8,4 +8,4 @@ wandb
 imageio
 # PBN
 gymnasium==0.27.0
-gym-PBN[vis]==1.1.0
+gym-PBN[vis]==1.1.1
