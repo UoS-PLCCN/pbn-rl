@@ -2,7 +2,7 @@ import argparse
 import random
 from pathlib import Path
 
-import gym
+import gymnasium as gym
 import gym_PBN
 import numpy as np
 import torch
@@ -79,7 +79,7 @@ def get_latest_checkpoint():
 
 # Model
 total_time_steps = args.time_steps
-resume_steps = None
+resume_steps = 0
 hyperparams = {}
 if args.hyperparams:
     hyperparams = {
@@ -87,7 +87,6 @@ if args.hyperparams:
         for param in args.hyperparams.split(",")
     }
 model = DDQNPER(env, DEVICE, **hyperparams)
-resume_steps = 0
 
 config = model.get_config()
 config["learning_starts"] = args.learning_starts

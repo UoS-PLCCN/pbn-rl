@@ -4,12 +4,11 @@ main.py - This module holds the actual Agent.
 import random
 from math import prod
 from pathlib import Path
-from statistics import mean
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
-from gym.spaces import Box, Discrete, MultiBinary
+from gymnasium.spaces import Box, Discrete, MultiBinary
 from gym_PBN.envs.pbn_target import PBNTargetEnv
 from torch import log_, optim
 from torch.nn import functional as F
@@ -17,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from .memory import ExperienceReplay, PrioritisedER, Transition
 from .network import DQN
-from .types import Minibatch, PERMinibatch
+from ddqn_per.types import Minibatch, PERMinibatch
 
 
 class DDQN:
@@ -50,10 +49,16 @@ class DDQN:
             input_size if input_size else prod(env.observation_space.shape)
         )
 
-        assert isinstance(
-            env.action_space, Discrete
-        ), "Only Discrete action space is supported"
-        self.output_size = output_size if output_size else env.action_space.n
+        # HACK for SDC
+        if hasattr(env, "discrete_action_space"):
+            self.output_size = (
+                output_size if output_size else env.discrete_action_space.n
+            )
+        else:
+            assert isinstance(
+                env.action_space, Discrete
+            ), "Only Discrete action space is supported"
+            self.output_size = output_size if output_size else env.action_space.n
 
         # Get episode stats
         self.env = gym.wrappers.RecordEpisodeStatistics(env, deque_size=25)
@@ -154,7 +159,11 @@ class DDQN:
 
     def predict(self, state, deterministic: bool = False) -> int:
         if not deterministic and random.random() <= self.EPSILON:
-            return self.env.action_space.sample()
+            # HACK for SDC
+            if hasattr(self.env, "discrete_action_space"):
+                return self.env.discrete_action_space.sample()
+            else:
+                return self.env.action_space.sample()
         else:
             return self._get_learned_action(state)
 
@@ -242,7 +251,7 @@ class DDQN:
         torch.nn.utils.clip_grad_norm_(self.controller.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
-        if self.log:
+        if self.log and hasattr(self, "wandb"):
             self.wandb.log({"loss": loss, "global_step": self.num_timesteps})
 
     def _log_params(self):
@@ -301,9 +310,11 @@ class DDQN:
         if log:
             self.log = True
 
-            run.watch(self.controller, log="all", log_freq=self.LOG_INTERVAL)
+            if run is not None:
+                run.watch(self.controller, log="all", log_freq=self.LOG_INTERVAL)
+                self.wandb = run
+
             self.writer = SummaryWriter(Path(log_dir) / log_name)
-            self.wandb = run
             hyperparam_print = "\n".join(
                 ["|param|value|", "|-|-|"]
                 + [f"|{key}|{value}" for key, value in self.get_config().items()]
@@ -312,17 +323,18 @@ class DDQN:
 
         episodes = 0
 
-        state = self.env.reset()
+        state, _ = self.env.reset()
         for global_step in range(self.num_timesteps, self.train_steps):
             action = self.predict(state)
-            next_state, reward, done, info = self.env.step(action)
+            next_state, reward, terminated, truncated, info = self.env.step(action)
+            done = terminated or truncated
 
             if "episode" in info.keys() and log:
                 episodes += 1
                 if episodes % self.env.return_queue.maxlen == 0:
                     _len = self.env.return_queue.maxlen
-                    ep_rew_mean = mean(self.env.return_queue)
-                    ep_len_mean = mean(self.env.length_queue)
+                    ep_rew_mean = np.mean(self.env.return_queue)
+                    ep_len_mean = np.mean(self.env.length_queue)
                     print(
                         f"Episode {episodes}: rew_{_len} - {ep_rew_mean}, len_{_len} - {ep_len_mean}"
                     )
@@ -360,11 +372,12 @@ class DDQN:
 
             state = next_state
             if done:
-                state = self.env.reset()
+                state, _ = self.env.reset()
 
         # Cleanup
         if log:
-            self.wandb.unwatch(self.controller)
+            if hasattr(self, "wandb"):
+                self.wandb.unwatch(self.controller)
             self.writer.close()
 
     def decrement_epsilon(self):
@@ -390,14 +403,23 @@ class DDQN:
 class DDQNPER(DDQN):
     """Agent using Prioritized Experience Replay."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        beta: float = 0.4,
+        max_beta: float = 0.4,
+        alpha: float = 0.6,
+        replay_constant: float = 1e-5,
+        beta_fraction: float = 0.75,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
-        self.BETA = 0.4
-        self.MIN_BETA = 0.4
-        self.MAX_BETA = 1.0
-        self.ALPHA = 0.6
-        self.REPLAY_CONSTANT = 1e-5
-        self.beta_fraction = 0.75
+        self.BETA = beta
+        self.MIN_BETA = beta
+        self.MAX_BETA = max_beta
+        self.ALPHA = alpha
+        self.REPLAY_CONSTANT = replay_constant
+        self.beta_fraction = beta_fraction
         self.replay_memory = PrioritisedER(self.buffer_size, self.ALPHA)
 
     @classmethod

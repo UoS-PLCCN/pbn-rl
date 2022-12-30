@@ -7,5 +7,5 @@ tensorboard
 wandb
 imageio
 # PBN
-gym
-gym-PBN[vis] @ git+https://github.com/UoS-PLCCN/gym-PBN@502f922
+gymnasium==0.27.0
+gym-PBN[vis]==1.1.0

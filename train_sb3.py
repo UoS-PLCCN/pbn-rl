@@ -3,7 +3,7 @@ import argparse
 import random
 from pathlib import Path
 
-import gym
+import gymnasium as gym
 import gym_PBN
 import numpy as np
 import torch

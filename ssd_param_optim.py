@@ -1,7 +1,7 @@
 import argparse
 import random
 
-import gym
+import gymnasium as gym
 import gym_PBN
 import numpy as np
 from gym_PBN.utils.eval import compute_ssd_hist
